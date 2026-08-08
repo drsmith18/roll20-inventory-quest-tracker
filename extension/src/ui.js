@@ -57,6 +57,10 @@
     ".pt-log-entry{padding:5px 0;border-bottom:1px solid #2b2d33}",
     ".pt-log-when{color:var(--pt-dim);margin-right:8px;font-size:11.5px}",
     ".pt-log-who{color:#c8a86a;margin-right:5px;font-weight:bold}",
+    ".pt-assign{display:flex;align-items:center;gap:6px;margin:0 10px 6px;padding:4px 8px;border-left:3px solid var(--pt-accent);background:rgba(220,194,117,.06);color:var(--pt-gold);font-size:11.5px}",
+    ".pt-assign span{flex:1;min-width:0}",
+    ".pt-split-recipients{max-height:160px;overflow-y:auto;border:1px solid var(--pt-edge);border-radius:4px;padding:4px 8px;margin:6px 0}",
+    ".pt-split-recipients label{margin:3px 0}",
     ".pt-about a{color:#7eb0d5}",
     ".pt-kofi{display:inline-block;background:#13c3ff;color:#092533 !important;font-weight:bold;border-radius:4px;padding:7px 16px;text-decoration:none;margin:4px 0}",
     ".pt-bug{display:inline-block;background:var(--pt-bg3);color:var(--pt-text) !important;border:1px solid var(--pt-edge2);border-radius:4px;padding:7px 16px;text-decoration:none;margin:4px 0}",
@@ -92,14 +96,18 @@
   }
 
   // ---- modal helper ---------------------------------------------------------
-  function modal(title, buildBody, onOk) {
+  // opts (all optional): okText/cancelText relabel the two buttons (used by
+  // the split flow's Confirm/Back step); onCancel fires after the Cancel/Back
+  // button closes this modal — the split preview uses it to reopen the form.
+  function modal(title, buildBody, onOk, opts) {
+    opts = opts || {};
     var back = PT.el("div", { class: "pt-modal-back" });
     var box = PT.el("div", { class: "pt-modal" }, [PT.el("h3", { text: title })]);
     var content = PT.el("div", {});
     buildBody(content);
     var row = PT.el("div", { class: "pt-row" }, [
-      PT.el("button", { class: "pt-btn", text: "OK", onclick: function () { if (onOk(content) !== false) back.remove(); } }),
-      PT.el("button", { class: "pt-btn pt-danger", text: "Cancel", onclick: function () { back.remove(); } })
+      PT.el("button", { class: "pt-btn", text: opts.okText || "OK", onclick: function () { if (onOk(content) !== false) back.remove(); } }),
+      PT.el("button", { class: "pt-btn pt-danger", text: opts.cancelText || "Cancel", onclick: function () { back.remove(); if (opts.onCancel) opts.onCancel(); } })
     ]);
     box.appendChild(content); box.appendChild(row); back.appendChild(box);
     back.addEventListener("mousedown", function (e) { if (e.target === back) back.remove(); });
@@ -117,6 +125,17 @@
       c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Reason:" })]));
       c.appendChild(PT.el("input", { type: "text", "data-reason": "1", placeholder: "e.g. sold the silver mirror" }));
       c.appendChild(PT.el("div", { class: "pt-note", text: "Use negative numbers to take coins out." }));
+      c.appendChild(PT.el("div", { class: "pt-row" }, [
+        PT.el("button", {
+          class: "pt-btn", text: "Split coins…", title: "Divide these coins between characters",
+          disabled: PT.purseToCopper(bag.doc.purse) > 0 ? undefined : "disabled",
+          onclick: function (e) {
+            var back = e.target.closest(".pt-modal-back");
+            if (back) back.remove();
+            splitModal(bag);
+          }
+        })
+      ]));
     }, function (c) {
       var deltas = {};
       PT.DENOMS.forEach(function (d) {
@@ -129,6 +148,119 @@
         ui.refresh();
       });
     });
+  }
+
+  // ---- coin splitting (INV-20a..h) -------------------------------------------
+  // Named characters in this game, sorted, capped at 30 (INV-20b's "chosen
+  // subset" needs a bounded list to stay usable). The DM's test/NPC
+  // characters are included deliberately — nothing here is filtered by name.
+  function splitCharacterNames() {
+    var models = [];
+    try { models = (window.Campaign && Campaign.characters && Campaign.characters.models) || []; } catch (e) {}
+    var names = models
+      .map(function (c) { return (c.get("name") || "").trim(); })
+      .filter(function (n) { return n; });
+    names.sort();
+    return names.slice(0, 30);
+  }
+
+  function splitModal(bag) {
+    var purse = bag.doc.purse || {};
+    var chars = splitCharacterNames();
+    // Preserved across a Back navigation from the preview step.
+    var state = { mode: "whole", specific: {}, recipients: [] };
+
+    function showForm() {
+      modal("Split coins — " + bag.doc.name, function (c) {
+        var specWrap = PT.el("div", { style: "margin-left:22px;display:" + (state.mode === "specific" ? "block" : "none") });
+        PT.DENOMS.forEach(function (d) {
+          specWrap.appendChild(PT.el("label", {}, [
+            PT.el("span", { text: d + " (" + (Number(purse[d]) || 0) + " in purse): ", style: "width:130px" }),
+            PT.el("input", { type: "number", value: String(state.specific[d] || 0), min: "0", "data-spec-denom": d })
+          ]));
+        });
+        var wholeRadio = PT.el("input", { type: "radio", name: "pt-split-mode", value: "whole", checked: state.mode === "whole" ? "checked" : undefined });
+        var specRadio = PT.el("input", { type: "radio", name: "pt-split-mode", value: "specific", checked: state.mode === "specific" ? "checked" : undefined });
+        [wholeRadio, specRadio].forEach(function (r) {
+          r.addEventListener("change", function () { specWrap.style.display = specRadio.checked ? "block" : "none"; });
+        });
+        c.appendChild(PT.el("label", {}, [wholeRadio, PT.el("span", { text: "Split the whole purse (" + PT.purseLabel(purse) + ")" })]));
+        c.appendChild(PT.el("label", {}, [specRadio, PT.el("span", { text: "Split a specific amount:" })]));
+        c.appendChild(specWrap);
+        c.appendChild(PT.el("div", { class: "pt-note", text: "Recipients (pick at least one):" }));
+        var recipWrap = PT.el("div", { class: "pt-split-recipients" });
+        if (!chars.length) recipWrap.appendChild(PT.el("div", { class: "pt-note", text: "No named characters in this game yet — use the free-text field below." }));
+        chars.forEach(function (name) {
+          recipWrap.appendChild(PT.el("label", {}, [
+            PT.el("input", { type: "checkbox", "data-recipient": "1", value: name, checked: state.recipients.indexOf(name) !== -1 ? "checked" : undefined }),
+            PT.el("span", { text: name })
+          ]));
+        });
+        c.appendChild(recipWrap);
+        c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Add another name:" })]));
+        c.appendChild(PT.el("input", { type: "text", "data-extra-name": "1", placeholder: "e.g. a hireling or NPC" }));
+      }, function (c) {
+        var mode = (c.querySelector("input[name=pt-split-mode]:checked") || {}).value || "whole";
+        var specific = {};
+        PT.DENOMS.forEach(function (d) {
+          var input = c.querySelector("[data-spec-denom=" + d + "]");
+          specific[d] = input ? (parseInt(input.value, 10) || 0) : 0;
+        });
+        var recipients = [];
+        [].forEach.call(c.querySelectorAll("[data-recipient]"), function (cb) { if (cb.checked) recipients.push(cb.value); });
+        var extra = c.querySelector("[data-extra-name]").value.trim();
+        if (extra) recipients.push(extra);
+
+        if (mode === "specific") {
+          var over = PT.DENOMS.some(function (d) { return specific[d] > (Number(purse[d]) || 0); });
+          if (over) { ui.toast("You can't split more of a coin than the purse holds."); return false; }
+          if (!PT.DENOMS.some(function (d) { return specific[d] > 0; })) { ui.toast("Enter an amount to split."); return false; }
+        } else if (PT.purseToCopper(purse) <= 0) {
+          ui.toast("The purse is empty."); return false;
+        }
+        if (!recipients.length) { ui.toast("Choose at least one recipient."); return false; }
+
+        state.mode = mode; state.specific = specific; state.recipients = recipients;
+        showPreview();
+        // fall through: this returns non-false, so the FORM modal closes —
+        // the preview modal opened above is already on top of the document.
+      });
+    }
+
+    function showPreview() {
+      var whole = state.mode === "whole";
+      var totalCp = whole ? PT.purseToCopper(purse) : PT.DENOMS.reduce(function (sum, d) {
+        return sum + (Number(state.specific[d]) || 0) * PT.COPPER_VALUE[d];
+      }, 0);
+      var n = state.recipients.length;
+      var perCp = Math.floor(totalCp / n);
+      var remCp = totalCp - perCp * n;
+      var shareLabel = PT.coinLabel(PT.copperToGpMax(perCp));
+      var leftover = {};
+      PT.DENOMS.forEach(function (d) {
+        var deduct = whole ? (Number(purse[d]) || 0) : (Number(state.specific[d]) || 0);
+        leftover[d] = (Number(purse[d]) || 0) - deduct;
+      });
+      leftover.cp = (Number(leftover.cp) || 0) + remCp;
+
+      modal("Confirm split — " + bag.doc.name, function (c) {
+        c.appendChild(PT.el("div", { class: "pt-note", text: "Splitting " + totalCp.toLocaleString() + " cp between " + n + " recipient" + (n === 1 ? "" : "s") + ":" }));
+        var list = PT.el("div", { style: "margin:8px 0" });
+        state.recipients.forEach(function (name) {
+          list.appendChild(PT.el("div", { text: "→ " + name + ": " + shareLabel }));
+        });
+        c.appendChild(list);
+        c.appendChild(PT.el("div", { class: "pt-note", text: "Stays in the purse: " + PT.purseLabel(leftover) }));
+      }, function () {
+        var recipients = state.recipients.slice();
+        PT.store.splitCoins(env, bag.id, bag.doc.name, { whole: whole, specific: state.specific, recipients: recipients }).then(function (r) {
+          if (!r.ok) ui.toast(r.err);
+          ui.refresh();
+        });
+      }, { okText: "Confirm", cancelText: "Back", onCancel: showForm });
+    }
+
+    showForm();
   }
 
   function addItemModal(bag) {
@@ -212,6 +344,23 @@
       class: "pt-purse", text: "🪙 " + PT.purseLabel(d.purse), title: "Click to add or remove coins",
       onclick: function () { coinModal(bag); }
     });
+    var assignRows = [];
+    (d.assignments || []).forEach(function (a) {
+      var when = new Date(a.t);
+      var dateStr = (when.getMonth() + 1) + "/" + when.getDate();
+      assignRows.push(PT.el("div", { class: "pt-assign" }, [
+        PT.el("span", { text: "→ " + a.to + ": " + a.label + " (assigned " + dateStr + " — waiting to be taken)" }),
+        PT.el("button", {
+          class: "pt-iconbtn", text: "✓", title: "Mark as transferred (removes this note)",
+          onclick: function () {
+            PT.store.transferAssignment(env, bag.id, d.name, a.id).then(function (r) {
+              if (!r.ok) ui.toast("Failed: " + r.err);
+              ui.refresh();
+            });
+          }
+        })
+      ]));
+    });
     var items = PT.el("div", { class: "pt-items" });
     if (!(d.items || []).length) items.appendChild(PT.el("div", { class: "pt-empty", text: "No items yet — drag from the compendium or use +" }));
     (d.items || []).forEach(function (it) {
@@ -244,7 +393,7 @@
         })
       ]));
     });
-    var card = PT.el("div", { class: "pt-bag" + (bag.hidden ? " pt-hidden-bag" : "") }, [head, purse, items]);
+    var card = PT.el("div", { class: "pt-bag" + (bag.hidden ? " pt-hidden-bag" : "") }, [head, purse].concat(assignRows, [items]));
     // every bag is its own drop target (UI-5: it's obvious which bag receives)
     PT.drops.arm(card, function (payload) {
       ui.toast("Fetching item details…", 1500);

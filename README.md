@@ -22,11 +22,13 @@ author's own table.** Not yet on the Chrome Web Store; it loads "unpacked"
   withhold the contents from players, and the DM view marks hidden bags
   unmistakably
 - An activity log of every change: who, what, when
+- Coin splitting with preview: convert-down maths, remainder stays in the
+  purse, shares recorded against characters until taken
 - 🐞 one-click bug reporting (pre-filled GitHub issue) and ☕ [Ko-fi](https://ko-fi.com/drsmith080)
 
-Not yet built: coin **splitting** between characters, sending items to
-character sheets, obscured/unidentified items, sub-bags, search & sort, and
-the quest tracker. That's the current order of work.
+Not yet built: sending items to character sheets, obscured/unidentified
+items, sub-bags, search & sort, and the quest tracker. That's the current
+order of work.
 
 ## Installing (no developer tools needed)
 

@@ -4,7 +4,7 @@
 window.PartyTools = window.PartyTools || {};
 (function (PT) {
   "use strict";
-  PT.VERSION = "0.2.1";
+  PT.VERSION = "0.3.0";
   PT.KOFI_URL = "https://ko-fi.com/drsmith080";
   PT.ISSUES_URL = "https://github.com/drsmith18/roll20-inventory-quest-tracker/issues";
 
@@ -51,5 +51,30 @@ window.PartyTools = window.PartyTools || {};
     if (!parts.length) return "empty purse";
     var gpTotal = (PT.purseToCopper(purse) / 100).toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
     return parts.join(", ") + " (≈" + gpTotal + " gp)";
+  };
+
+  // Re-expresses a copper amount using GOLD as the largest denomination —
+  // INV-20e: splits are shown "to gold at most", never platinum, and
+  // electrum is input-only (it never comes back out of a split).
+  //
+  // Self-check against the PRD's worked example (§6, INV-20c):
+  //   3 pp + 137 gp + 12 sp + 7 cp = 3000 + 13700 + 120 + 7 = 16,827 cp
+  //   split 4 ways: floor(16827 / 4) = 4,206 cp each, remainder 16827 - 4206*4 = 3 cp
+  //   PT.copperToGpMax(4206) -> {gp: 42, sp: 0, cp: 6}
+  //   PT.coinLabel({gp: 42, sp: 0, cp: 6}) -> "42 gp, 6 cp"
+  //   ...matching the PRD table exactly: "42 gp, 6 cp each", "3 cp" stays.
+  PT.copperToGpMax = function (cp) {
+    cp = Math.max(0, Math.floor(Number(cp) || 0));
+    var gp = Math.floor(cp / 100);
+    var rest = cp - gp * 100;
+    var sp = Math.floor(rest / 10);
+    return { gp: gp, sp: sp, cp: rest - sp * 10 };
+  };
+  PT.coinLabel = function (parts) {
+    var bits = [];
+    if (parts.gp) bits.push(parts.gp + " gp");
+    if (parts.sp) bits.push(parts.sp + " sp");
+    if (parts.cp || !bits.length) bits.push(parts.cp + " cp");
+    return bits.join(", ");
   };
 })(window.PartyTools);

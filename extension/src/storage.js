@@ -470,4 +470,79 @@
       return r;
     });
   };
+
+  // ---- coin splitting (INV-20a..h) -------------------------------------------
+  // opts: { whole: bool, specific: {pp,gp,ep,sp,cp}, recipients: [name, ...] }
+  // Everything happens in ONE mutateBag call (INV-20f: one log entry, not
+  // one write per recipient): the split amount converts to copper (INV-20c),
+  // divides evenly by recipient count, the undivided remainder — plus, for a
+  // specific-amount split, whatever coin wasn't part of the split — stays in
+  // the purse (INV-20d). The same write also records the fallback "assigned
+  // to a character" note (INV-20g/h), since sheet writing doesn't exist yet:
+  // the coin still leaves the purse so the party's total wealth isn't
+  // double-counted, but stays visible as owed until a player marks it taken.
+  //
+  // Guard: mutateBag's fn always sees the CURRENT doc, re-read fresh on every
+  // attempt (writeMerged's verify-and-retry). If the purse no longer covers
+  // the amount that was previewed — someone spent it, or split it again,
+  // in the meantime — this returns false, which surfaces as {unchanged:true}
+  // with nothing written, and the caller reports it rather than guessing.
+  PT.store.splitCoins = function (env, bagId, bagName, opts) {
+    var recipients = (opts && opts.recipients) || [];
+    var n = recipients.length;
+    var result = null;
+    return mutateBag(bagId, function (doc) {
+      doc.purse = doc.purse || {};
+      var cur = doc.purse;
+      var deduct = {};
+      if (opts.whole) {
+        PT.DENOMS.forEach(function (d) { deduct[d] = Number(cur[d]) || 0; });
+      } else {
+        var enough = PT.DENOMS.every(function (d) {
+          deduct[d] = Number(opts.specific[d]) || 0;
+          return (Number(cur[d]) || 0) >= deduct[d];
+        });
+        if (!enough) return false;
+      }
+      var totalCp = PT.DENOMS.reduce(function (sum, d) { return sum + deduct[d] * PT.COPPER_VALUE[d]; }, 0);
+      if (totalCp <= 0 || n <= 0) return false;
+      var perCp = Math.floor(totalCp / n);
+      var remCp = totalCp - perCp * n;
+      PT.DENOMS.forEach(function (d) { cur[d] = (Number(cur[d]) || 0) - deduct[d]; });
+      cur.cp = (Number(cur.cp) || 0) + remCp;
+      doc.assignments = doc.assignments || [];
+      var label = PT.coinLabel(PT.copperToGpMax(perCp));
+      recipients.forEach(function (name) {
+        doc.assignments.push({ id: PT.uid(), to: name, cp: perCp, label: label, t: Date.now(), by: env.playerName });
+      });
+      result = { totalCp: totalCp, perCp: perCp, remCp: remCp, label: label };
+    }).then(function (r) {
+      if (r.unchanged) return { ok: false, err: "The purse changed while you were previewing — try again." };
+      if (!r.ok || !result) return r;
+      var verb = n === 1 ? " gets " : " get ";
+      var wayWord = n === 1 ? " way: " : " ways: ";
+      var msg = "split " + result.totalCp.toLocaleString() + " cp of “" + bagName + "” " + n + wayWord +
+        recipients.join(", ") + verb + result.label + (n === 1 ? "" : " each") + "; " + result.remCp + " cp stays in the purse";
+      return PT.store.appendLog(env, msg).then(function () { return { ok: true, result: result }; });
+    });
+  };
+
+  // Removes one assignment record once a player confirms they've taken the
+  // coin off the note (mirrors the item fallback in INV-24). Not a coin
+  // mutation — the coin already left the purse when the split was confirmed.
+  PT.store.transferAssignment = function (env, bagId, bagName, assignmentId) {
+    var removed = null;
+    return mutateBag(bagId, function (doc) {
+      var a = (doc.assignments || []).filter(function (x) { return x.id === assignmentId; })[0];
+      if (!a) return false;
+      removed = a;
+      doc.assignments = doc.assignments.filter(function (x) { return x.id !== assignmentId; });
+    }).then(function (r) {
+      if (r.ok && removed) {
+        return PT.store.appendLog(env, env.playerName + " marked " + removed.to + "’s " + removed.label + " as transferred")
+          .then(function () { return r; });
+      }
+      return r;
+    });
+  };
 })(window.PartyTools);
