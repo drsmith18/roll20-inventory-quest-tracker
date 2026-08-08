@@ -17,7 +17,7 @@ both 2014 and 2024 rules) on the Jumpgate backend.
 | S2 | Write items/coin to character sheets (BLOCKING) | Not started |
 | S3 | Compendium drop resolution | Not started |
 | S4 | Handout size limits | Not started |
-| S5 | Concurrent writes | **Data loss observed** — run 1 lost all 6 GM writes silently; S5b tiebreaker in progress |
+| S5 | Concurrent writes | **ANSWERED** — silent last-write-wins; loser discarded with no signal |
 | S6 | Legacy backend | Not started (awaiting identification of the Legacy campaign) |
 
 ---
@@ -79,33 +79,47 @@ hidden per-item data.
 
 ---
 
-## S5 — Concurrent writes (run 1, 8 Aug 2026) — provisional
+## S5 — Concurrent writes — **ANSWERED: silent last-write-wins** (8 Aug 2026)
 
 **How tested:** both clients appended one line to the same handout body at 6
 synchronized instants, 10 s apart (read body, append own line, write back —
 the pattern a naive shared activity log would use). Start time was planted in
-the handout body by the GM client and read by the player client, so both
-windows fired within milliseconds on one machine's clock.
+the handout body by the GM client and read by the player client; console
+timestamps show the two windows fired within 1–2 ms of each other every
+round, so synchronization was real and neither window was throttled.
 
-**Observed:** the final body — identical from both clients — contained the
-base marker and **all 6 player lines, zero GM lines**. No errors, no
-permission_denied, no notification of any kind on either side. One side's
-writes were entirely and silently lost.
+**Observed**
 
-**Two candidate explanations, distinguished by rerun S5b (staggered rounds
-plus per-write self-checks):**
+- Both clients attempted all 6 writes (both consoles show all six
+  `appended:` lines with aligned timestamps).
+- The final body — identical from both clients — contained **all 6 player
+  lines and zero GM lines**. The same side lost every round.
+- No errors, no exceptions, no permission warnings, no notification of any
+  kind on either side. The loser's client believes it wrote.
+- GM writes demonstrably work uncontended (the GM-written base marker
+  survived and was read by the player), so the loss is a property of
+  contention, not of the GM client.
 
-1. **Silent last-write-wins:** both writes landed ~simultaneously; the
-   player's consistently arrived second and overwrote the GM's line each
-   round.
-2. **GM writes never dispatched:** a GM-window problem (background-window
-   timer throttling or a mid-round exception) meant the GM never actually
-   wrote; the test would then not have measured collisions at all.
+**Answers to the brief's three questions:** it is last-write-wins on the
+whole body; neither side is notified; data is silently lost — the losing
+write is discarded in its entirety.
 
-**Already safe to conclude either way:** blob writes carry no conflict
-detection and no failure signal. Whatever S5b shows, the product cannot use
-naive read-modify-write on any handout written by more than one client at a
-time; the activity log (every client writes one object) is the most exposed
-(PRD C6.3, SYS-7).
+**Design consequences (PRD SYS-7, C6.3)**
 
-**Verdict: pending S5b.**
+1. **The activity log cannot be a single shared handout.** Every client
+   appending to one body guarantees silent entry loss. Layout change: each
+   client appends only to its own per-writer log handout; readers merge all
+   log handouts by timestamp. (Also neutralises the tamper concern partially
+   — a client's log shard is written by one account.)
+2. **Bags are multi-writer and carry the same risk** at lower frequency (two
+   players editing the same bag in the same second). Required mitigation:
+   after every write, re-read and confirm; if the change vanished, reapply.
+   Combined with sub-second sync (S1), retries converge quickly and the user
+   sees "one winner", satisfying SYS-7.
+3. Reinforces S1 finding 3: **no write may ever be assumed successful.**
+   Rejection (permissions) and loss (contention) are both silent; the
+   echo-verify layer covers both.
+
+**Verdict: answered. No redesign of the storage decision required, but the
+log layout changes to per-writer shards and all writes go through a
+verify-and-retry layer.**
