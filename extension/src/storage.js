@@ -146,9 +146,26 @@
     })();
   }
 
+  // Waits until the journal's initial download has finished: the handout
+  // count must hold still for 3 consecutive one-second samples. A fresh page
+  // races the download — v0.1.2 scanned an EMPTY list, read "no storage",
+  // and re-initialised on every reload. This is the fix for that.
+  function waitForJournal() {
+    var last = -1, stable = 0, t0 = Date.now();
+    return (function check() {
+      var n = Campaign.handouts.models.length;
+      if (n === last) stable++; else { stable = 0; last = n; }
+      if (stable >= 3 || Date.now() - t0 > 30000) {
+        PT.log("journal settled: " + n + " handout(s) after " + Math.round((Date.now() - t0) / 1000) + "s");
+        return Promise.resolve();
+      }
+      return PT.delay(1000).then(check);
+    })();
+  }
+
   // ---- init (DEL-3 for the DM, DEL-4 for players) --------------------------
   PT.store.init = function (env) {
-    return scanUntilReady().then(function (found) {
+    return waitForJournal().then(scanUntilReady).then(function (found) {
       if (found.index) {
         if ((found.index.doc.partyToolsIndex || 0) > SCHEMA) st.readOnly = true;
         st.indexH = found.index.h;

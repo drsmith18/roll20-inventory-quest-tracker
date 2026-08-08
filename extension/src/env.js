@@ -5,15 +5,19 @@
   "use strict";
   PT.env = {};
 
-  // Resolves when the Roll20 page objects the extension depends on exist.
+  // Resolves when Roll20's campaign data is genuinely CONNECTED — not merely
+  // when the (initially empty) collections exist. The proof used: our own
+  // player record has arrived in Campaign.players. Before that point the
+  // journal list is empty and any scan of it lies.
   PT.env.ready = function () {
     return new Promise(function (resolve, reject) {
       var t0 = Date.now();
       (function poll() {
-        if (window.Campaign && window.Campaign.handouts && window.Campaign.players && window.campaign_id) {
-          return resolve();
-        }
-        if (Date.now() - t0 > 90000) return reject(new Error("Roll20 game data never appeared (90s)"));
+        var base = window.Campaign && window.Campaign.handouts && window.Campaign.players && window.campaign_id;
+        var selfLoaded = base && window.d20_player_id &&
+          Campaign.players.models.some(function (p) { return p.id === window.d20_player_id; });
+        if (selfLoaded) return resolve();
+        if (Date.now() - t0 > 120000) return reject(new Error("Roll20 game data never finished loading (120s)"));
         setTimeout(poll, 500);
       })();
     });
