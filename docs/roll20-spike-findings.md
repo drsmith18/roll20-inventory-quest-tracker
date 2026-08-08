@@ -191,6 +191,42 @@ character data is loadable in the background, per character, on demand.
 Firebase stores the tree natively. Reads need no parsing; the structure
 dump was re-issued accordingly.
 
-**Next:** map the store object's inventory/currency structure using the
-hand-added Torch and 10 gp as landmarks, then a careful reversible write
-(modify store, bump `updateId`, verify the sheet UI renders the change).
+**Store structure (mapped 8 Aug 2026).** `store` is ~57 KB serialised for a
+nearly-empty character, in 24 top-level sections (`about`, `actions`,
+`inventory`, `currencies`, `integrants`, `settings`, …). One section holds
+almost everything: `store.integrants.integrants` (54.7 KB of the 57 KB) is a
+flat map of ID → record, where each record carries `_id`, `name`, `type`,
+`parentID`, `childIDs`, `source`, `shortID`, `createdTime`, and
+type-specific fields. Items, attacks, damage entries, actions and the five
+currencies are all integrants in this one map, linked by ID.
+
+Landmarks from the hand-added Torch and 10 gp:
+
+| Path | Contents |
+|---|---|
+| `store.integrants.integrants.<id>` | every item/attack/damage/action/currency record |
+| `store.integrants.integrants.{copper,silver,electrum,gold,platinum}` | currency records, each with a `conversion` ({amountOfTarget, target}) chain: platinum→gold→silver→copper, electrum→silver |
+| `store.currencies` | only `{"initialized":true}` — the amounts are NOT here |
+| `store.inventory` | 100 chars — small; likely container/config, not the item list |
+| `updateId` (sibling attribute) | opaque token, presumably the change signal to other clients |
+
+**Important consequence: one UI item is a graph of records, not a row.** The
+single hand-added Torch produced at least four linked integrants — the item
+(`e58XAtolfk3D7vmpjsepY`), an attack (`rJ96b252qbNs7ukHSsudO`), a damage
+record (`DrUbJqb-t9jRwoOdakake`, `parentID` → the attack, `sourceID` → the
+item, `cascades` back to the item) and a "Light Torch" action — all children
+of a container integrant (`E_LA4Y-6zRqYtCiW5YH-K`) whose `childIDs` lists
+them. Records also carry `compendiumPageID`, tying sheet items back to
+compendium entries (relevant to S3), and `cost` as a display string
+(`"10 GP"`).
+
+For the product this is workable but not trivial: a mundane item (rope, a
+quest trinket) plausibly needs one item record plus registration in its
+container's `childIDs`; anything with an attack needs the linked set. The
+2014 sheet will share none of this. Both are why INV-24's assignment
+fallback stays in the spec.
+
+**Next:** full dumps of the gold and Torch records (part 2's output truncated
+before the amount fields), then a reversible write test — add one mundane
+item and change coin, bump `updateId`, and confirm the Roll20 sheet UI
+renders it.
