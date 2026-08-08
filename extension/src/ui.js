@@ -9,52 +9,58 @@
   var activeTab = "inventory";
   var pollTimer = null;
 
+  // Palette follows Roll20's own dark UI: charcoal surfaces, thin grey
+  // borders, off-white text, restrained crimson accent. Nothing purple.
   var CSS = [
-    "#pt-launcher{position:fixed;right:0;top:38%;z-index:99990;background:#2b1d4e;color:#e8e0ff;border:1px solid #6c4fd8;border-right:none;border-radius:8px 0 0 8px;padding:8px 6px;cursor:pointer;font:bold 13px sans-serif;writing-mode:vertical-rl;letter-spacing:1px;user-select:none}",
-    "#pt-launcher:hover{background:#3a2a66}",
-    "#pt-panel{position:fixed;z-index:99991;width:360px;max-height:70vh;display:flex;flex-direction:column;background:#1e1b2e;color:#e6e2f0;border:1px solid #5b48a8;border-radius:10px;box-shadow:0 6px 30px rgba(0,0,0,.55);font:13px/1.45 sans-serif}",
+    ":root{--pt-bg:#1f2126;--pt-bg2:#26282e;--pt-bg3:#2e3138;--pt-edge:#3d4046;--pt-edge2:#4a4e55;--pt-text:#e1e3e6;--pt-dim:#9aa0a8;--pt-accent:#c9302c;--pt-gold:#dcc275}",
+    "#pt-launcher{position:fixed;right:0;top:38%;z-index:99990;background:var(--pt-bg2);color:var(--pt-text);border:1px solid var(--pt-edge2);border-right:none;border-radius:6px 0 0 6px;padding:10px 7px;cursor:pointer;font:bold 12px Arial,Helvetica,sans-serif;writing-mode:vertical-rl;letter-spacing:1.5px;user-select:none;box-shadow:-2px 2px 8px rgba(0,0,0,.35)}",
+    "#pt-launcher:hover{background:var(--pt-bg3)}",
+    "#pt-panel{position:fixed;z-index:99991;width:440px;height:62vh;min-width:340px;min-height:280px;max-width:92vw;max-height:92vh;resize:both;overflow:hidden;display:flex;flex-direction:column;background:var(--pt-bg);color:var(--pt-text);border:1px solid var(--pt-edge2);border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,.6);font:13px/1.5 Arial,Helvetica,sans-serif}",
     "#pt-panel *{box-sizing:border-box}",
-    ".pt-head{display:flex;align-items:center;gap:6px;padding:7px 10px;background:#2b2545;border-radius:10px 10px 0 0;cursor:move;user-select:none}",
-    ".pt-head .pt-title{font-weight:bold;flex:1}",
-    ".pt-iconbtn{background:none;border:none;color:#cfc6ee;cursor:pointer;font-size:14px;padding:2px 5px;border-radius:4px}",
-    ".pt-iconbtn:hover{background:#453a75;color:#fff}",
-    ".pt-tabs{display:flex;border-bottom:1px solid #453a75}",
-    ".pt-tab{flex:1;text-align:center;padding:6px 0;cursor:pointer;color:#a99cd6}",
-    ".pt-tab.pt-active{color:#fff;border-bottom:2px solid #8f6fff;font-weight:bold}",
-    ".pt-body{overflow-y:auto;padding:8px 10px;flex:1}",
-    ".pt-bag{border:1px solid #453a75;border-radius:8px;margin-bottom:10px;background:#262040}",
-    ".pt-bag.pt-hidden-bag{border:2px dashed #ff5470;background:repeating-linear-gradient(45deg,#2c1f33,#2c1f33 12px,#33202b 12px,#33202b 24px)}",
-    ".pt-hidden-badge{background:#ff5470;color:#fff;font-size:10px;font-weight:bold;border-radius:4px;padding:1px 6px;margin-left:6px}",
-    ".pt-baghead{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid #3a3160}",
-    ".pt-bagname{font-weight:bold;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-    ".pt-purse{padding:4px 8px;color:#ffd76e;font-size:12px;cursor:pointer}",
-    ".pt-purse:hover{text-decoration:underline}",
-    ".pt-items{padding:2px 8px 6px}",
-    ".pt-item{display:flex;align-items:center;gap:5px;padding:3px 0;border-bottom:1px dotted #37305c}",
+    ".pt-head{display:flex;align-items:center;gap:8px;padding:9px 12px;background:#17181c;border-bottom:1px solid var(--pt-edge);border-radius:6px 6px 0 0;cursor:move;user-select:none}",
+    ".pt-head .pt-title{font-weight:bold;flex:1;font-size:14px}",
+    ".pt-iconbtn{background:none;border:none;color:var(--pt-dim);cursor:pointer;font-size:15px;padding:3px 7px;border-radius:4px;line-height:1}",
+    ".pt-iconbtn:hover{background:var(--pt-bg3);color:var(--pt-text)}",
+    ".pt-tabs{display:flex;border-bottom:1px solid var(--pt-edge);background:var(--pt-bg)}",
+    ".pt-tab{flex:1;text-align:center;padding:8px 0;cursor:pointer;color:var(--pt-dim);border-bottom:2px solid transparent}",
+    ".pt-tab:hover{color:var(--pt-text)}",
+    ".pt-tab.pt-active{color:var(--pt-text);border-bottom-color:var(--pt-accent);font-weight:bold}",
+    ".pt-body{overflow-y:auto;padding:10px 12px;flex:1}",
+    ".pt-bag{border:1px solid var(--pt-edge);border-radius:5px;margin-bottom:12px;background:var(--pt-bg2)}",
+    ".pt-bag.pt-hidden-bag{border:2px dashed #b3455a;background:repeating-linear-gradient(45deg,#26282e,#26282e 14px,#2d262b 14px,#2d262b 28px)}",
+    ".pt-hidden-badge{background:#b3455a;color:#fff;font-size:10px;font-weight:bold;border-radius:3px;padding:2px 7px;margin-left:6px;letter-spacing:.3px}",
+    ".pt-baghead{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--pt-edge)}",
+    ".pt-bagname{font-weight:bold;font-size:14px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+    ".pt-purse{padding:6px 10px;color:var(--pt-gold);font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--pt-edge)}",
+    ".pt-purse:hover{background:var(--pt-bg3)}",
+    ".pt-items{padding:4px 10px 8px}",
+    ".pt-item{display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #2b2d33}",
     ".pt-item:last-child{border-bottom:none}",
     ".pt-itemname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default}",
-    ".pt-qty{color:#a99cd6;min-width:28px;text-align:right}",
-    ".pt-empty{color:#8a7fb8;font-style:italic;padding:4px 0}",
-    ".pt-row{display:flex;gap:6px;margin:6px 0}",
-    ".pt-btn{background:#3d2f7d;color:#fff;border:1px solid #6c4fd8;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px}",
-    ".pt-btn:hover{background:#4d3d99}",
-    ".pt-btn.pt-danger{background:#5d2440;border-color:#a83a5f}",
-    ".pt-drop-over{outline:3px dashed #8f6fff;outline-offset:-3px}",
-    ".pt-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:99999;background:#2b2545;color:#fff;border:1px solid #8f6fff;border-radius:8px;padding:8px 16px;font:13px sans-serif;box-shadow:0 4px 20px rgba(0,0,0,.5)}",
-    ".pt-modal-back{position:fixed;inset:0;z-index:99995;background:rgba(10,8,20,.6);display:flex;align-items:center;justify-content:center}",
-    ".pt-modal{background:#1e1b2e;color:#e6e2f0;border:1px solid #5b48a8;border-radius:10px;padding:14px;width:300px;font:13px sans-serif}",
-    ".pt-modal h3{margin:0 0 10px;font-size:14px}",
-    ".pt-modal label{display:flex;align-items:center;gap:6px;margin:4px 0}",
-    ".pt-modal input[type=number],.pt-modal input[type=text]{width:100%;background:#141126;border:1px solid #453a75;color:#fff;border-radius:5px;padding:4px 6px}",
-    ".pt-modal input[type=number]{width:70px}",
-    ".pt-log{font-size:12px}",
-    ".pt-log-entry{padding:3px 0;border-bottom:1px dotted #37305c}",
-    ".pt-log-when{color:#8a7fb8;margin-right:6px}",
-    ".pt-log-who{color:#9fd0ff;margin-right:4px;font-weight:bold}",
-    ".pt-about a{color:#9fd0ff}",
-    ".pt-kofi{display:inline-block;background:#13c3ff;color:#092533 !important;font-weight:bold;border-radius:6px;padding:6px 14px;text-decoration:none;margin:4px 0}",
-    ".pt-bug{display:inline-block;background:#3d2f7d;color:#fff !important;border:1px solid #6c4fd8;border-radius:6px;padding:6px 14px;text-decoration:none;margin:4px 0}",
-    ".pt-note{color:#8a7fb8;font-size:12px}"
+    ".pt-itemmeta{color:var(--pt-dim);font-size:11.5px;margin-left:6px}",
+    ".pt-qty{color:var(--pt-dim);min-width:32px;text-align:right}",
+    ".pt-empty{color:var(--pt-dim);font-style:italic;padding:6px 0}",
+    ".pt-row{display:flex;gap:8px;margin:8px 0}",
+    ".pt-btn{background:var(--pt-bg3);color:var(--pt-text);border:1px solid var(--pt-edge2);border-radius:4px;padding:6px 12px;cursor:pointer;font-size:12.5px}",
+    ".pt-btn:hover{background:#383b43}",
+    ".pt-btn.pt-danger{background:#3a2426;border-color:#7c3c3c;color:#e8b4b4}",
+    ".pt-btn.pt-danger:hover{background:#4a2b2e}",
+    ".pt-drop-over{outline:3px dashed var(--pt-accent);outline-offset:-3px}",
+    ".pt-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:99999;background:#17181c;color:var(--pt-text);border:1px solid var(--pt-edge2);border-left:3px solid var(--pt-accent);border-radius:5px;padding:9px 16px;font:13px Arial,Helvetica,sans-serif;box-shadow:0 4px 20px rgba(0,0,0,.5);max-width:70vw}",
+    ".pt-modal-back{position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center}",
+    ".pt-modal{background:var(--pt-bg);color:var(--pt-text);border:1px solid var(--pt-edge2);border-radius:6px;padding:16px;width:320px;font:13px/1.5 Arial,Helvetica,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,.6)}",
+    ".pt-modal h3{margin:0 0 12px;font-size:14px;border-bottom:1px solid var(--pt-edge);padding-bottom:8px}",
+    ".pt-modal label{display:flex;align-items:center;gap:8px;margin:6px 0}",
+    ".pt-modal input[type=number],.pt-modal input[type=text]{width:100%;background:#17181c;border:1px solid var(--pt-edge2);color:var(--pt-text);border-radius:4px;padding:5px 8px;font:inherit}",
+    ".pt-modal input[type=number]{width:80px}",
+    ".pt-log{font-size:12.5px}",
+    ".pt-log-entry{padding:5px 0;border-bottom:1px solid #2b2d33}",
+    ".pt-log-when{color:var(--pt-dim);margin-right:8px;font-size:11.5px}",
+    ".pt-log-who{color:#c8a86a;margin-right:5px;font-weight:bold}",
+    ".pt-about a{color:#7eb0d5}",
+    ".pt-kofi{display:inline-block;background:#13c3ff;color:#092533 !important;font-weight:bold;border-radius:4px;padding:7px 16px;text-decoration:none;margin:4px 0}",
+    ".pt-bug{display:inline-block;background:var(--pt-bg3);color:var(--pt-text) !important;border:1px solid var(--pt-edge2);border-radius:4px;padding:7px 16px;text-decoration:none;margin:4px 0}",
+    ".pt-note{color:var(--pt-dim);font-size:12px}"
   ].join("\n");
 
   function posKey() { return "partytools-" + window.campaign_id + "-" + env.playerId; }
@@ -216,8 +222,15 @@
       if (it.weight != null) titleBits.push(it.weight + " lb");
       if (it.description) titleBits.push("— " + it.description);
       titleBits.push("(added by " + (it.addedBy || "?") + ")");
+      var metaBits = [];
+      if (it.cost) metaBits.push(it.cost);
+      if (it.weight != null && it.weight !== "") metaBits.push(it.weight + " lb");
+      var nameSpan = PT.el("span", { class: "pt-itemname", title: titleBits.join(" · ") }, [
+        PT.el("span", { text: it.name + (it.resolved === false && it.note ? " *" : "") })
+      ]);
+      if (metaBits.length) nameSpan.appendChild(PT.el("span", { class: "pt-itemmeta", text: metaBits.join(" · ") }));
       items.appendChild(PT.el("div", { class: "pt-item" }, [
-        PT.el("span", { class: "pt-itemname", text: it.name + (it.resolved === false && it.note ? " *" : ""), title: titleBits.join(" · ") }),
+        nameSpan,
         PT.el("span", { class: "pt-qty", text: "×" + (it.qty || 1) }),
         PT.el("button", { class: "pt-iconbtn", text: "−", title: "One fewer", onclick: function () { PT.store.changeQty(env, bag.id, d.name, it.id, -1).then(ui.refresh); } }),
         PT.el("button", { class: "pt-iconbtn", text: "+", title: "One more", onclick: function () { PT.store.changeQty(env, bag.id, d.name, it.id, +1).then(ui.refresh); } }),
@@ -332,6 +345,22 @@
     });
   };
 
+  // Position AND size are remembered per user per game (UI-4). Native CSS
+  // resize writes inline width/height; a ResizeObserver picks that up.
+  function savePanelGeometry() {
+    try {
+      localStorage.setItem(posKey(), JSON.stringify({
+        left: panel.style.left, top: panel.style.top,
+        w: panel.style.width || (panel.offsetWidth + "px"),
+        h: panel.style.height || (panel.offsetHeight + "px")
+      }));
+    } catch (e) {}
+  }
+  var saveGeomSoon = (function () {
+    var t = null;
+    return function () { clearTimeout(t); t = setTimeout(savePanelGeometry, 400); };
+  })();
+
   function makeDraggable(head) {
     head.addEventListener("mousedown", function (e) {
       if (e.target.closest("button")) return;
@@ -345,7 +374,7 @@
       function up() {
         document.removeEventListener("mousemove", move);
         document.removeEventListener("mouseup", up);
-        try { localStorage.setItem(posKey(), JSON.stringify({ left: panel.style.left, top: panel.style.top })); } catch (err) {}
+        savePanelGeometry();
       }
       document.addEventListener("mousemove", move);
       document.addEventListener("mouseup", up);
@@ -379,7 +408,10 @@
     try {
       var saved = PT.tryJson(localStorage.getItem(posKey()));
       if (saved && saved.left) { panel.style.left = saved.left; panel.style.top = saved.top; panel.style.right = "auto"; }
+      if (saved && saved.w) panel.style.width = saved.w;
+      if (saved && saved.h) panel.style.height = saved.h;
     } catch (e) {}
+    try { new ResizeObserver(saveGeomSoon).observe(panel); } catch (e) {}
 
     ui.state = state;
     if (state === "noStorage") {
