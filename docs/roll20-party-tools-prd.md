@@ -100,6 +100,7 @@ The quest tracker is optional and can be switched off per game; the inventory is
 - INV-16 — The DM can obscure an item. Players then see only a DM-written surface description ("a dull grey rod, warm to the touch") with no stats, value, or true name. The DM sees both versions.
 - INV-16a — Obscuring must be possible **at the moment of drop**, not only afterwards — an item dragged from the compendium arrives with full stats, and players must never see them flash into view first. Either a modifier on the drop, or a per-game setting where anything the DM drops starts obscured.
 - INV-16b — Revealing an item's true nature is a single DM action, and appears in the activity log.
+- INV-16c — **Known limitation, found in build review (v0.5.1).** Obscuring protects an item's *data*, not its *history*. The activity log is player-readable and permanent (INV-22b), so if an item was added, moved or re-counted by name before being obscured, those entries still name it. Obscuring after the fact therefore hides the item from the panel but not from a player who scrolls the log. Two mitigations ship: obscuring at the moment of drop (INV-16a, shift-drop) never writes the true name anywhere player-readable, and the obscure dialog states this caveat plainly so the DM can choose. Rewriting or redacting past log entries was considered and rejected: silently altering a log whose entire value is being trustworthy (INV-22) is a worse failure than an honest warning.
 
 ### Currency
 

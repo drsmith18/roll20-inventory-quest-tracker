@@ -62,6 +62,7 @@
     // tag right below is the part that's DM-only).
     ".pt-item.pt-obscured{border-left:3px solid #b3455a;background:rgba(179,69,90,.10);padding-left:6px}",
     ".pt-truename{color:#b3455a;font-size:11px;margin-left:6px}",
+    ".pt-warn{color:#e8b98a;font-size:11.5px;margin-top:8px;padding:6px 8px;border-left:3px solid #b3752f;background:rgba(179,117,47,.12)}",
     ".pt-itemname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default}",
     ".pt-itemmeta{color:var(--pt-dim);font-size:11.5px;margin-left:6px}",
     ".pt-qty{color:var(--pt-dim);min-width:32px;text-align:right}",
@@ -370,6 +371,14 @@
       c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Surface description (what players see):" })]));
       c.appendChild(PT.el("input", { type: "text", "data-f": "surface", placeholder: "a dull grey rod, warm to the touch" }));
       c.appendChild(PT.el("div", { class: "pt-note", text: "Players will see only this as the item's name — no stats, value, or true name. You can reveal it later in one click." }));
+      // Honest caveat: obscuring hides the item's DATA, but the activity log
+      // is player-readable and already names this item from when it was
+      // added or moved. Obscuring cannot un-say that, and silently rewriting
+      // the log would be worse than telling the DM.
+      c.appendChild(PT.el("div", {
+        class: "pt-warn",
+        text: "Note: the activity log already records this item by name from when it was added, and players can read the log. To keep an item secret from the start, shift-drop it from the compendium instead — that never logs the true name."
+      }));
     }, function (c) {
       var surface = c.querySelector("[data-f=surface]").value.trim();
       if (!surface) return false; // empty input rejected — stay open
