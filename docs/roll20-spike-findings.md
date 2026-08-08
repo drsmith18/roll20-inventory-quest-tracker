@@ -14,9 +14,9 @@ both 2014 and 2024 rules) on the Jumpgate backend.
 |---|---|---|
 | S1 | Player write to shared handout (BLOCKING) | **PASS** — certified 8 Aug 2026 |
 | S1b | gmnotes withheld on shared handouts? | **NO — leak confirmed.** gmnotes is unsafe on any player-visible handout |
-| S2 | Write items/coin to character sheets (BLOCKING) | In progress — 2024 sheet is Beacon-architecture (single JSON store), not classic attribs |
+| S2 | Write items/coin to character sheets (BLOCKING) | In progress — background load PASSED (~1s, no sheet open); write test next |
 | S3 | Compendium drop resolution | Not started |
-| S4 | Handout size limits | Provisional — no ceiling to 8MB, but probe verified local cache only; S4b persistence check pending |
+| S4 | Handout size limits | **ANSWERED** — no ceiling up to 8MB (verified with 12s persistence wait); no practical constraint |
 | S5 | Concurrent writes | **ANSWERED** — silent last-write-wins; loser discarded with no signal |
 | S6 | Legacy backend | Not started (awaiting identification of the Legacy campaign) |
 
@@ -139,10 +139,16 @@ accepted the 8 MB write (S1 showed rejections surface as a delayed local
 revert, seconds later). S4b re-checks the top size with a 12-second wait
 before verification.
 
-**Provisional reading:** no practical ceiling for this product. Even if the
-true limit were 1 MB, at ~1–2 KB per stored item and ~150 bytes per log
-entry, a single handout holds hundreds of items or thousands of log entries;
-at 8 MB the question disappears entirely. Final verdict after S4b.
+**S4b (same day):** a single 8,000,000-character write, verified after a
+12-second wait (long enough for the delayed-revert failure mode S1
+demonstrated), PASSED with no Firebase messages, and the handout deleted
+cleanly.
+
+**Verdict: answered — no ceiling up to 8 MB per handout body.** At ~1–2 KB
+per stored item and ~150 bytes per log entry, capacity is a non-issue for
+the life of a campaign (INV-22b, INV-27). The activity log would fit in one
+handout for decades; it is sharded per-writer anyway because of S5, not
+because of size.
 
 ---
 
@@ -173,6 +179,18 @@ character — Roll20's newer Beacon-style sheet architecture. There are no
    gmnotes blobs), and each `attribs` collection carries a `backboneFirebase`
    slot and a `url` — the presumed lazy-load wiring.
 
-**Next:** background-load test on a fresh client (attach `BackboneFirebase`
-to the attribs collection without opening the sheet), then map the store
-JSON's inventory/currency structure, then a careful reversible write.
+**Background load: PASSED (same day).** On a freshly reloaded client with
+`attribs loaded = 0` and no sheet ever opened:
+`c.attribs.backboneFirebase = new BackboneFirebase(c.attribs)` populated all
+5 attributes (including `store`) within **1 second**. The collection's URL
+is `/char-attribs/char/<character-id>/`. This kills the scariest half of S2:
+character data is loadable in the background, per character, on demand.
+
+**Correction from the first structure dump:** when loaded this way,
+`store`'s `current` value is a live nested **object**, not a JSON string —
+Firebase stores the tree natively. Reads need no parsing; the structure
+dump was re-issued accordingly.
+
+**Next:** map the store object's inventory/currency structure using the
+hand-added Torch and 10 gp as landmarks, then a careful reversible write
+(modify store, bump `updateId`, verify the sheet UI renders the change).
