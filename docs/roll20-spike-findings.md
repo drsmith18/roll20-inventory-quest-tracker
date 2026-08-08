@@ -226,7 +226,46 @@ container's `childIDs`; anything with an attack needs the linked set. The
 2014 sheet will share none of this. Both are why INV-24's assignment
 fallback stays in the spec.
 
-**Next:** full dumps of the gold and Torch records (part 2's output truncated
-before the amount fields), then a reversible write test — add one mundane
-item and change coin, bump `updateId`, and confirm the Roll20 sheet UI
-renders it.
+**Record shapes (full dumps, 8 Aug 2026).**
+
+*Currency* — one integrant per denomination, the amount in a single field:
+```
+{_id:"gold", type:"Currency", name:"Gold", value:0,
+ conversion:{amountOfTarget:10, target:"silver"},
+ childIDs:"[]", parentID:"", shortID:"bUSM9LqoM", _enabled:true, ...}
+```
+Writing coin to a 2024 sheet is therefore a one-field change per
+denomination. The conversion chain (platinum→gold→silver→copper,
+electrum→silver) is declared in the data, so INV-20c's convert-down maths can
+read the sheet's own rates rather than hardcoding them.
+
+*Item* — e.g. the Torch:
+```
+{_id:"e58XAtolfk3D7vmpjsepY", type:"Item", name:"Torch", recordName:"Torch",
+ quantity:10, weight:1, cost:"1 CP", rarity:"", description:"A torch burns…",
+ equipData:{equippable:true, equipped:false}, parentID:"E_LA4Y…",
+ sourceID:"E_LA4Y…", source:"Item", compendiumPageID:"620473f664f27f21de838dc3",
+ childIDs:"[\"rJ96b252qbNs7ukHSsudO\"]", shortID:"qjpz4I2wn", …}
+```
+
+**Three things that matter for the build:**
+
+1. **`childIDs` is a STRING containing a JSON array**, not an array —
+   `"[\"id1\",\"id2\"]"`. Parse and re-stringify; treating it as an array
+   corrupts the record.
+2. **The observed Torch was not hand-added** — it is a child of an
+   *Explorer's Pack* item, itself from class starting equipment. Containers
+   nest via `parentID`/`childIDs`, and the pack's contents each carry an
+   attack/damage sub-graph where relevant. A plain item needs one record plus
+   registration in its parent's `childIDs`.
+3. **`compendiumPageID` links sheet items back to compendium entries**
+   (Torch → `620473f664f27f21de838dc3`), which is a second, independent route
+   into compendium data and directly relevant to S3.
+
+Item fields map cleanly onto INV-10: name, description, weight, cost,
+rarity, quantity all exist natively.
+
+**Next:** the write test (`spikes/s2/write-test.js`, undo in `restore.js`) —
+back up the store to a handout, add one plain item, set gold, bump
+`updateId`, then confirm in Roll20's own sheet UI. The UI check is the real
+pass condition: data the sheet does not render is a failed transfer.
