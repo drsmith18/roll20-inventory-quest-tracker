@@ -1,6 +1,6 @@
 # Party Tools for Roll20 — Product Requirements
 
-**Status:** Draft v0.2 — open questions resolved, see §11
+**Status:** Draft v0.3 — v0.2 plus pre-spike corrections (ROLE-3 rewording, C6 added, SC renumbering); change notes inline
 **Type:** Product requirements. Describes *what* the product must do and for whom. Deliberately excludes technical design.
 
 ---
@@ -52,7 +52,7 @@ The quest tracker is optional and can be switched off per game; the inventory is
 
 - ROLE-1 — The extension must determine whether the current user is the DM or a player from the Roll20 session itself. No setup screen, no "are you the DM?" prompt, no invite codes.
 - ROLE-2 — If role cannot be determined confidently, the extension must fail closed: treat the user as a player and show nothing hidden.
-- ROLE-3 — A player must not be able to grant themselves DM rights by manipulating their own browser. See §10 for why this is a real constraint and not a given.
+- ROLE-3 — *(reworded in v0.3 — the original "a player must not be able to grant themselves DM rights" is not achievable client-side, per the technical findings §1)* What the product actually guarantees: a player who fakes the GM flag in their own console gains the DM **interface** but not DM **sight** — hidden bags and unrevealed quests stay hidden, because Roll20 withholds GM-only handout bodies server-side. DM-only *actions* on data players can already see and edit (marking steps complete, reversing log entries, currency rules) are enforced by the UI only; a determined cheat could perform them by manipulating shared storage directly. This is accepted: the tool serves tables that already run on trust. Hiding is the hard guarantee; authority over shared data is not.
 - ROLE-4 — Where a Roll20 game has more than one GM, every GM receives full DM rights. This gives away nothing, since Roll20 already grants GMs sight of all hidden content in the game itself. The extension must not block or degrade for co-DM tables.
 - ROLE-5 — Because "the DM" may be several people, the activity log records which GM performed each action rather than attributing it generically.
 - ROLE-6 — Known limitation: a client can determine that it is a GM, but cannot identify which *other* users are GMs, because Roll20's player data carries no GM flag. Consequence: a co-DM appears in the per-player reveal picker alongside the players. This is cosmetic and accepted for v1.
@@ -92,7 +92,7 @@ The quest tracker is optional and can be switched off per game; the inventory is
 - INV-11 — Items can also be created manually, by name, for homebrew and improvised objects ("the innkeeper's severed hand", "a strangely warm rock"). Free-text name, optional description, optional value and weight.
 - INV-12 — Items have a quantity. Identical items stack, with an explicit split action.
 - INV-13 — Any player or the DM can move an item between bags.
-- INV-14 — Any player or the DM can delete an item, with confirmation. Deletion is recoverable for a period — see INV-22.
+- INV-14 — Any player or the DM can delete an item, with confirmation. Deletion is recoverable by the DM from the activity log for the life of the game (INV-22a); there is no player-side undo. *(v0.3: was "recoverable for a period", which contradicted INV-22b's life-of-game retention.)*
 - INV-15 — Items can carry a free-text note added by any party member ("Heather thinks this is cursed").
 - INV-16 — The DM can obscure an item. Players then see only a DM-written surface description ("a dull grey rod, warm to the touch") with no stats, value, or true name. The DM sees both versions.
 - INV-16a — Obscuring must be possible **at the moment of drop**, not only afterwards — an item dragged from the compendium arrives with full stats, and players must never see them flash into view first. Either a modifier on the drop, or a per-game setting where anything the DM drops starts obscured.
@@ -219,7 +219,7 @@ The quest tracker is optional and can be switched off per game; the inventory is
 | View hidden bags | ✗ | ✓ |
 | Add / remove / move items | ✓ | ✓ |
 | Add / remove currency | ✓ | ✓ |
-| Create bags | Q1 | ✓ |
+| Create bags | ✓ | ✓ |
 | Hide / reveal bags | ✗ | ✓ |
 | Claim item to own character | ✓ | ✓ |
 | Create / edit quests and steps | ✗ | ✓ |
@@ -266,6 +266,11 @@ What data actually travels with a compendium drag, and whether it's enough to sa
 **C5 — Extension distribution.**
 Chrome Web Store and Firefox add-on review, plus the ongoing maintenance risk that any Roll20 UI change can break the integration. Not a v1 feature question, but it shapes how much the product should depend on Roll20's page structure.
 
+**C6 — Three storage-layout gaps in Q19, found in pre-spike review (v0.3).**
+1. An obscured item (INV-16) sits in a *revealed* bag, whose handout body every player's client can read. Its true name and stats therefore cannot be stored in that body — they need GM-only storage. Candidate: the bag handout's `gmnotes` field, **if** spike S1b confirms Roll20 withholds `gmnotes` on shared handouts the way it does on GM-only ones. Otherwise, a parallel GM-only handout per bag.
+2. Quests must be player-visible but not player-editable (QST-19). Roll20 separates viewing (`inplayerjournals`) from editing (`controlledby`), so the quest handout can be read-only to players — but then player notes (QST-20) cannot live in it. Notes need a separate player-writable store.
+3. The activity log is one handout that every client writes. It is the one place Q19's "concurrent edits never collide" argument fails — spike S5's result applies to it most of all — and anyone with write access can also edit history, so the log is evidence, not proof (see ROLE-3).
+
 ---
 
 ## 11. Decisions log
@@ -300,16 +305,19 @@ All questions raised in v0.1 are now resolved. Recorded here with the reasoning,
 
 - **Two blocking assumptions, both unverified.** Whether a player can write to a shared handout body and have it sync, and whether items and coin can be written to the 2014 and 2024 sheets given attributes load lazily. Both are covered by the spike brief and must be answered before v1 work starts.
 - **Three lesser unknowns.** Handout body size limits against a long campaign, behaviour on the Legacy backend, and what Roll20 does on simultaneous writes to the same handout (SYS-7).
+- **One added in v0.3.** Whether `gmnotes` on a *shared* handout is withheld from players server-side, which decides where obscured-item true stats live (C6.1). Covered by spike S1b.
 
 ---
 
 ## 12. Success criteria
 
-- S1 — A group stops using their shared loot document within two sessions of adopting the tool.
-- S2 — Adding a dropped item to a bag takes under 10 seconds mid-session.
-- S3 — Zero instances of a DM accidentally revealing hidden content through the UI.
-- S4 — Party inventory is still correct and current at the start of the next session with no manual reconciliation.
-- S5 — A new player joining an existing campaign gets the full current picture with no onboarding beyond installing the extension.
+*(v0.3: renumbered from S1–S5 to SC-1–SC-5, which collided with the spike IDs in the spike brief.)*
+
+- SC-1 — A group stops using their shared loot document within two sessions of adopting the tool.
+- SC-2 — Adding a dropped item to a bag takes under 10 seconds mid-session.
+- SC-3 — Zero instances of a DM accidentally revealing hidden content through the UI.
+- SC-4 — Party inventory is still correct and current at the start of the next session with no manual reconciliation.
+- SC-5 — A new player joining an existing campaign gets the full current picture with no onboarding beyond installing the extension.
 
 ## 13. Possible later scope
 

@@ -25,8 +25,9 @@ The entire shared-inventory premise assumes players can write to storage the DM 
 2. From the player account's browser, write to that handout's `notes` body through the page's own Backbone model.
 3. Confirm the change persists, and confirm it appears in the GM's client without a reload.
 4. Repeat with the player *not* granted edit rights, to establish what read-only looks like.
+5. **S1b (added v0.3):** while the handout is shared with the player, have the GM write a distinctive string into its `gmnotes`. From the player account, attempt to read `gmnotes`. The findings verified gmnotes are withheld on *GM-only* handouts; this checks whether the same holds on *shared* ones. Decides where obscured-item true stats live (PRD C6.1).
 
-**Record:** whether the write succeeds, whether it syncs live, roughly how fast, and what failure looks like when rights are absent.
+**Record:** whether the write succeeds, whether it syncs live, roughly how fast, what failure looks like when rights are absent, and whether shared-handout `gmnotes` are readable by the player.
 
 **If it fails:** the handout-storage approach collapses for the shared inventory and the whole C2 decision reopens. Stop and report. Do not fall back to a hosted service unilaterally.
 
