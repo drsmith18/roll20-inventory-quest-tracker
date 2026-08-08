@@ -3,66 +3,76 @@
 **Started:** 8 August 2026
 **Method:** Console snippets written by Claude, run by DR in a dedicated test
 game ("Browser Extension Test") with the main account as GM and a second free
-account as the player, in two browser windows on one machine. Raw console
-output pasted back verbatim. Campaign identifiers are redacted in this
-document per repo rules.
+account ("Emerald Slip") as the player, in two browser windows on one machine.
+Raw console output pasted back verbatim. Campaign identifiers are redacted in
+this document per repo rules. The test game runs the D&D 2024 sheet (covers
+both 2014 and 2024 rules) on the Jumpgate backend.
 
 **Status board**
 
 | Spike | Question | Status |
 |---|---|---|
-| S1 | Player write to shared handout (BLOCKING) | Run 1 contaminated; rerun in progress |
-| S1b | gmnotes withheld on shared handouts? | Leak observed in run 1; confirming on rerun |
+| S1 | Player write to shared handout (BLOCKING) | **PASS** — certified 8 Aug 2026 |
+| S1b | gmnotes withheld on shared handouts? | **NO — leak confirmed.** gmnotes is unsafe on any player-visible handout |
 | S2 | Write items/coin to character sheets (BLOCKING) | Not started |
 | S3 | Compendium drop resolution | Not started |
 | S4 | Handout size limits | Not started |
-| S5 | Concurrent writes | Not started |
+| S5 | Concurrent writes | Snippets issued |
 | S6 | Legacy backend | Not started (awaiting identification of the Legacy campaign) |
 
 ---
 
-## S1 — Player write to a shared handout (run 1, 8 Aug 2026)
+## S1 — Player write to a shared handout — **PASS** (8 Aug 2026)
 
-**What happened:** run 1 produced two handouts named `SPIKE-S1` (an earlier
-partial attempt left one behind). Find-by-name then sent different steps to
-different objects, so the write/sync/latency results are a mix of two runs and
-are not certified. A controlled rerun (`SPIKE-S1-R2` snippets, with cleanup
-and duplicate guards) is in progress.
+**How tested:** run 1 was contaminated by a leftover duplicate handout (all
+steps had been run once in a single window first, leaving a stray `SPIKE-S1`;
+find-by-name then sent the two clients to different objects). Operator
+sequencing, not Roll20 behaviour. The certified run used a fresh handout
+`SPIKE-S1-R2` after deleting all spike handouts, with duplicate guards and
+run-specific markers. Snippets: `spikes/s1/`.
 
-**Findings that stand regardless of the contamination:**
+**Results**
 
-1. **Handout creation and blob writes work from the console on Jumpgate.**
-   `Campaign.handouts.create({...})` creates and shares a handout
-   (`inplayerjournals` = view, `controlledby` = edit), and
-   `handout.updateBlobs({notes, gmnotes})` writes the bodies. Reads go through
-   `handout._getLatestBlob(field, callback)` (async). Both exist in the GM and
-   player clients.
+1. **Player write works.** With the player's ID in `controlledby`, the player
+   client's `updateBlobs({notes})` write persisted and was confirmed by
+   re-read. The shared-inventory premise holds; the C2/Q18 storage decision
+   stands. INV-13/INV-15/INV-18 are implementable as designed.
 
-2. **Read-only is enforced server-side, and refusal is SILENT.** A player
-   without `controlledby` rights who calls `updateBlobs` gets no exception and
-   no callback error. The only evidence is a Firebase console warning:
-   `FIREBASE WARNING: update at /campaign-<redacted>/hand-blobs/<handout-id>
-   failed: permission_denied`, and the write does not propagate (confirmed
-   from the GM client). **Design consequence (SYS-7, SYS-8): the extension
-   must verify every write by re-read or echo — a rejected write looks
-   exactly like a successful one to the caller.**
+2. **Sync is sub-second.** The GM client, polling at 1 s intervals without a
+   reload, saw the player's write ~611 ms after it was made (poll granularity
+   means true latency is ≤ 611 ms). SYS-6's 5-second target is beaten by an
+   order of magnitude.
 
-3. **S1b signal — gmnotes on a shared handout leaked to the player client.**
-   The player's `_getLatestBlob("gmnotes")` returned the GM's secret string on
-   a handout shared via `inplayerjournals`. If the rerun confirms this,
-   `gmnotes` is NOT a safe home for obscured-item true stats (PRD C6.1), and
-   hidden per-item data needs a parallel GM-only handout instead. Note this
-   does not contradict the original findings doc, which only verified gmnotes
-   withholding on fully GM-only handouts.
+3. **Read-only is enforced server-side, and rejection is SILENT.** With
+   `controlledby` cleared (view kept via `inplayerjournals`), the player's
+   write produced no exception and no callback error — only a Firebase console
+   warning (`update at /campaign-<redacted>/hand-blobs/<handout-id> failed:
+   permission_denied`). The write did not appear in the player's own re-read
+   and never reached the GM. **Design consequences:** (a) QST-19's read-only
+   quests are genuinely enforceable by leaving players out of `controlledby`;
+   (b) SYS-7/SYS-8: the extension must confirm every write by re-read or
+   echo, because a rejected write looks identical to a successful one at the
+   call site.
 
-4. **Probable but uncertified: a player with edit rights can write.** A
-   player-authored marker was present in a handout body and visible to the GM
-   client — but it was written during the uncontrolled first attempt, so
-   success and latency will be certified by the rerun, not this.
+4. **S1b — gmnotes leaks on shared handouts.** On a handout shared via
+   `inplayerjournals`, the player's `_getLatestBlob("gmnotes")` returned the
+   GM's secret. (The `gmnotes` *attribute* was `undefined`; the blob is where
+   the content lives, and the blob is delivered.) The original findings doc's
+   "gmnotes withheld" result applies **only to fully GM-only handouts**.
+   **Design consequence (PRD C6.1):** obscured-item true stats must live in a
+   GM-only handout, never in the gmnotes of a player-visible one.
 
-5. **Design lesson: reference handouts by ID, never by name.** Two handouts
-   with the same name sent each client to a different object. The product's
-   index must store Roll20 handout IDs. (Names were already required to be
-   opaque per PRD C1; now they are also forbidden as keys.)
+5. **Reference by ID, never by name** (from the run-1 contamination): two
+   handouts can share a name, and name lookups then diverge per client. The
+   product's index must store Roll20 handout IDs.
 
-**Verdict: pending rerun.**
+**API surface confirmed working on Jumpgate, both roles:**
+`Campaign.handouts.create({name, inplayerjournals, controlledby, archived})`,
+`handout.updateBlobs({notes, gmnotes})` (write),
+`handout._getLatestBlob(field, cb)` (async read),
+`handout.save({controlledby})` / `handout.destroy()` (GM),
+`Campaign.players` for enumerating seated accounts.
+
+**Verdict:** the blocking assumption holds. Shared handout storage is viable
+for the party inventory, with write-verification and a GM-only side store for
+hidden per-item data.
