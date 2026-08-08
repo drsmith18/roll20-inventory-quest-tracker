@@ -29,6 +29,7 @@ window.PartyTools = window.PartyTools || {};
   PT.el = function (tag, attrs, children) {
     var node = document.createElement(tag);
     Object.keys(attrs || {}).forEach(function (k) {
+      if (attrs[k] === undefined || attrs[k] === null) return; // absent, not "undefined"
       if (k === "text") node.textContent = attrs[k];
       else if (k === "html") node.innerHTML = attrs[k]; // only for trusted, static markup
       else if (k.indexOf("on") === 0) node.addEventListener(k.slice(2), attrs[k]);

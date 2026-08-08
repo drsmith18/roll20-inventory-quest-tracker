@@ -13,6 +13,10 @@
   "use strict";
   var PREFIX = "PT-";
   var SCHEMA = 1;
+  // Verification delays are overridable so the test harness can run fast;
+  // the defaults are tuned to real Roll20 (blob writes echo in ~1s).
+  function verifyDelay() { return PT.VERIFY_DELAY_MS || 1600; }
+  function createDelay() { return PT.CREATE_DELAY_MS || 1200; }
   var st = {
     ready: false, readOnly: false,
     indexH: null, gmIndexH: null, logH: null,
@@ -48,7 +52,7 @@
       var text = JSON.stringify(doc);
       try { h.updateBlobs({ notes: text }); }
       catch (e) { return { ok: false, err: "write threw: " + e.message }; }
-      return PT.delay(1600).then(function () {
+      return PT.delay(verifyDelay()).then(function () {
         return readBlob(h).then(function (got) {
           if (got === text) return { ok: true, doc: doc };
           if (attempts <= 1) return { ok: false, err: "write did not persist (permissions, or repeated write races)" };
@@ -72,7 +76,7 @@
         archived: false
       });
     } catch (e) { return Promise.resolve({ ok: false, err: "create threw: " + e.message }); }
-    return PT.delay(1200).then(function () {
+    return PT.delay(createDelay()).then(function () {
       return writeMerged(h, function () { return firstDoc; }).then(function (res) {
         return res.ok ? { ok: true, h: h } : { ok: false, err: res.err };
       });
@@ -365,7 +369,10 @@
     }).then(function (r) {
       if (r.ok && applied) {
         PT.store.appendLog(env, "coins in “" + bagName + "”: " + applied + (reason ? " (" + reason + ")" : ""));
-      } else if (!r.ok && !r.err) r.err = "purse cannot go negative";
+      } else if (r.unchanged && !applied) {
+        // the mutation refused to apply: taking out more than the purse holds
+        return { ok: false, err: "not enough coins in the purse for that" };
+      }
       return r;
     });
   };
