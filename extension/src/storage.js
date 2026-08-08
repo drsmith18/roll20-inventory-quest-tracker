@@ -8,7 +8,9 @@
 //     which Roll20 enforces server-side (bodies are withheld from players)
 // Layout: one shared index, one GM-only index (hidden bag list), one shared
 // activity log (entries are union-merged by id, so concurrent appends
-// converge instead of overwriting each other), and one handout per bag.
+// converge instead of overwriting each other), one GM-only log for actions
+// that must never reach a player-readable handout at all, and one handout
+// per bag.
 (function (PT) {
   "use strict";
   var PREFIX = "PT-";
@@ -19,10 +21,16 @@
   function createDelay() { return PT.CREATE_DELAY_MS || 1200; }
   var st = {
     ready: false, readOnly: false,
-    indexH: null, gmIndexH: null, logH: null,
+    indexH: null, gmIndexH: null, logH: null, gmLogH: null,
     bagHs: {}   // handout id -> handout model
   };
   PT.store = { state: st, SCHEMA: SCHEMA };
+  // Guards the lazy creation of the GM-only log for games that started
+  // before this feature existed (see ensureGmLog below). Module-level so
+  // it survives across the repeated PT.store.snapshot() calls the UI's 4s
+  // poll makes — without it, several overlapping polls could each see
+  // st.gmLogH still null and each kick off a create.
+  var gmLogCreating = false;
 
   function handoutById(id) { return Campaign.handouts.get(id) || null; }
 
@@ -117,13 +125,14 @@
     return Promise.all(candidates.map(function (h) {
       return readBlob(h).then(function (t) { return { h: h, doc: PT.tryJson(t) }; });
     })).then(function (list) {
-      var found = { index: null, gmIndex: null, log: null, bags: {}, readable: 0, extraIndexes: [] };
+      var found = { index: null, gmIndex: null, log: null, gmLog: null, bags: {}, readable: 0, extraIndexes: [] };
       list.forEach(function (e) {
         if (!e.doc) return; // unreadable = hidden-from-us, or body not loaded yet
         found.readable++;
         if (e.doc.partyToolsIndex) { if (found.index) found.extraIndexes.push(e.h.id); else found.index = e; }
         else if (e.doc.partyToolsGmIndex) { if (!found.gmIndex) found.gmIndex = e; }
         else if (e.doc.partyToolsLog) { if (!found.log) found.log = e; }
+        else if (e.doc.partyToolsGmLog) { if (!found.gmLog) found.gmLog = e; }
         else if (e.doc.partyToolsBag) found.bags[e.h.id] = e;
       });
       return found;
@@ -178,6 +187,10 @@
         st.indexH = found.index.h;
         st.gmIndexH = found.gmIndex ? found.gmIndex.h : null;
         st.logH = found.log ? found.log.h : null;
+        // Games created before this feature existed have no GM log handout
+        // yet (found.gmLog is null); ensureGmLog (called from snapshot())
+        // creates one lazily for the DM the first time it notices this.
+        st.gmLogH = found.gmLog ? found.gmLog.h : null;
         st.ready = true;
         if (found.extraIndexes.length) {
           PT.log("WARNING: " + found.extraIndexes.length + " duplicate storage set(s) present; using earliest. Run PartyTools.store.wipeAll() as DM to reset, or clean up PT- handouts by hand.");
@@ -191,7 +204,8 @@
         return { state: "notReady" };
       }
       if (!env.isGM) return { state: "noStorage" }; // players never initialise a game
-      // Genuine first run as DM: index + gm index + log + default bag (INV-1).
+      // Genuine first run as DM: index + gm index + log + gm log + default
+      // bag (INV-1).
       return createHandout("all", {
         partyToolsBag: SCHEMA, name: "Party Loot", desc: "", items: [],
         purse: { pp: 0, gp: 0, ep: 0, sp: 0, cp: 0 }
@@ -200,10 +214,13 @@
         return Promise.all([
           createHandout("all", { partyToolsIndex: SCHEMA, bags: [bag.h.id], settings: {} }),
           createHandout("gm", { partyToolsGmIndex: SCHEMA, hiddenBags: [], obscured: {} }),
-          createHandout("all", { partyToolsLog: SCHEMA, entries: [] })
+          createHandout("all", { partyToolsLog: SCHEMA, entries: [] }),
+          createHandout("gm", { partyToolsGmLog: SCHEMA, entries: [] })
         ]).then(function (res) {
-          if (!res[0].ok || !res[1].ok || !res[2].ok) return { state: "initFailed", err: (res[0].err || res[1].err || res[2].err) };
-          st.indexH = res[0].h; st.gmIndexH = res[1].h; st.logH = res[2].h;
+          if (!res[0].ok || !res[1].ok || !res[2].ok || !res[3].ok) {
+            return { state: "initFailed", err: (res[0].err || res[1].err || res[2].err || res[3].err) };
+          }
+          st.indexH = res[0].h; st.gmIndexH = res[1].h; st.logH = res[2].h; st.gmLogH = res[3].h;
           st.ready = true;
           return { state: "ready", firstRun: true };
         });
@@ -218,7 +235,8 @@
     console.log("[PartyTools] v" + PT.VERSION + " | role=" + (window.is_gm ? "DM" : "player") +
       " | state=" + (st.readOnly ? "readOnly" : st.ready ? "ready" : "NOT ready"));
     console.log("[PartyTools] chosen: index=" + (st.indexH ? st.indexH.id : "none") +
-      " gmIndex=" + (st.gmIndexH ? st.gmIndexH.id : "none") + " log=" + (st.logH ? st.logH.id : "none"));
+      " gmIndex=" + (st.gmIndexH ? st.gmIndexH.id : "none") + " log=" + (st.logH ? st.logH.id : "none") +
+      " gmLog=" + (st.gmLogH ? st.gmLogH.id : "none"));
     console.log("[PartyTools] " + names.length + " PT- handout(s) by name; per-handout dump follows:");
     names.sort(function (a, b) { return a.id < b.id ? -1 : 1; }).forEach(function (h) {
       readBlob(h).then(function (b) {
@@ -241,10 +259,30 @@
     var doomed = ptHandoutsByName();
     PT.log("wiping " + doomed.length + " PT- handout(s)…");
     doomed.forEach(function (h) { try { h.destroy(); } catch (e) {} });
-    st.ready = false; st.indexH = st.gmIndexH = st.logH = null; st.bagHs = {};
+    st.ready = false; st.indexH = st.gmIndexH = st.logH = st.gmLogH = null; st.bagHs = {};
+    gmLogCreating = false; // allow a fresh init/snapshot to recreate the GM log
     PT.log("done. Reload the page as the DM to recreate storage.");
     return doomed.length;
   };
+
+  // Creates the GM-only log for a game whose storage predates this feature
+  // (existing games won't have one from init()). Fires from snapshot()
+  // below — the UI polls snapshot() every few seconds, so this must be
+  // idempotent across overlapping calls: the module-level gmLogCreating
+  // guard means only the FIRST call that notices st.gmLogH is still null
+  // actually creates the handout; later polls just see st.gmLogH filled in
+  // once it lands (or, on failure, PT.log a warning and let a later poll
+  // retry). Deliberately not part of the returned promise chain — it's a
+  // background repair, not something callers should wait on.
+  function ensureGmLog(env) {
+    if (!env.isGM || !st.ready || st.gmLogH || gmLogCreating) return;
+    gmLogCreating = true;
+    createHandout("gm", { partyToolsGmLog: SCHEMA, entries: [] }).then(function (res) {
+      if (res.ok) { st.gmLogH = res.h; return; }
+      PT.log("could not create the GM-only log (will retry on a later refresh):", res.err);
+      gmLogCreating = false;
+    });
+  }
 
   // ---- snapshot for the UI --------------------------------------------------
   // Re-reads the index and every listed bag. Hidden bags come from the GM
@@ -252,6 +290,7 @@
   // never receive hidden bag ids here, let alone contents.
   PT.store.snapshot = function (env) {
     if (!st.ready) return Promise.resolve(null);
+    ensureGmLog(env);
     return Promise.all([PT.store.readDoc(st.indexH), st.gmIndexH ? PT.store.readDoc(st.gmIndexH) : null])
       .then(function (r) {
         var index = r[0] || { bags: [] };
@@ -296,6 +335,66 @@
   PT.store.readLog = function () {
     if (!st.logH) return Promise.resolve([]);
     return PT.store.readDoc(st.logH).then(function (doc) { return (doc && doc.entries) || []; });
+  };
+
+  // ---- GM-only activity log --------------------------------------------------
+  // Same shape and merge behaviour as the shared log above, but written to
+  // st.gmLogH — a handout Roll20 withholds from players server-side, same
+  // as the GM index. This exists so DM-secret actions (hiding a bag,
+  // obscuring an item) never have to touch the player-readable log at all.
+  PT.store.appendGmLog = function (env, msg) {
+    if (!st.gmLogH) {
+      // Deliberately NOT falling back to PT.store.appendLog here: this
+      // function exists specifically so DM secrets never reach the
+      // player-readable log. Silently writing them there instead of just
+      // failing loud would defeat the entire point of a separate log.
+      PT.log("appendGmLog: no GM-only log handout available yet — refusing to write \"" + msg + "\" anywhere (NOT falling back to the shared log)");
+      return Promise.resolve({ ok: false });
+    }
+    var entry = { id: PT.uid(), t: Date.now(), who: env.playerName, gm: !!env.isGM, msg: msg };
+    return writeMerged(st.gmLogH, function (doc) {
+      doc = doc && doc.partyToolsGmLog ? doc : { partyToolsGmLog: SCHEMA, entries: [] };
+      if (doc.entries.some(function (e) { return e.id === entry.id; })) return null;
+      doc.entries.push(entry);
+      doc.entries.sort(function (a, b) { return a.t - b.t; });
+      if (doc.entries.length > 4000) doc.entries = doc.entries.slice(-4000);
+      return doc;
+    });
+  };
+  PT.store.readGmLog = function () {
+    if (!st.gmLogH) return Promise.resolve([]);
+    return PT.store.readDoc(st.gmLogH).then(function (doc) { return (doc && doc.entries) || []; });
+  };
+
+  // Redacts a true item name out of the SHARED log (INV-16's visible
+  // redaction): entries from before the item was obscured can still name it
+  // ("added 1× “Longsword” to “Party Loot”"), and obscuring the item's DATA
+  // can't un-say that. This walks the log and swaps the true name for
+  // `replacement` wherever it appears wrapped in the curly quotes the log
+  // always uses around names — “<trueName>”, quotes included — never a bare
+  // substring match. That distinction matters: an item literally named
+  // "Rope" must not redact the word "rope" turning up inside unrelated
+  // free text elsewhere in the log, and only the exact quoted form the log
+  // itself produces when it names an item can appear that way.
+  PT.store.redactInLog = function (trueName, replacement) {
+    if (!st.logH) return Promise.resolve({ ok: false, count: 0 });
+    var quoted = "“" + trueName + "”";
+    var count = 0;
+    return writeMerged(st.logH, function (doc) {
+      doc = doc && doc.partyToolsLog ? doc : { partyToolsLog: SCHEMA, entries: [] };
+      var changed = 0;
+      doc.entries.forEach(function (e) {
+        if (typeof e.msg !== "string" || e.msg.indexOf(quoted) === -1) return;
+        e.msg = e.msg.split(quoted).join(replacement);
+        e.redacted = true;
+        changed++;
+      });
+      if (!changed) return null; // nothing matched — no write needed
+      count = changed;
+      return doc;
+    }).then(function (r) {
+      return { ok: !!r.ok, count: r.ok ? count : 0 };
+    });
   };
 
   // ---- bag operations -------------------------------------------------------
@@ -346,7 +445,10 @@
       }).then(function (r2) {
         if (!r2.ok) return r2;
         st.bagHs[res.h.id] = res.h;
-        if (!hidden) PT.store.appendLog(env, "created bag “" + name + "”");
+        // A hidden bag's existence is itself a DM secret — log it to the
+        // GM-only log, not the shared one.
+        if (hidden) PT.store.appendGmLog(env, "created hidden bag “" + name + "”");
+        else PT.store.appendLog(env, "created bag “" + name + "”");
         return { ok: true, id: res.h.id };
       });
     });
@@ -370,7 +472,12 @@
         return doc;
       });
     }).then(function (r) {
-      if (r.ok && !hidden) PT.store.appendLog(env, "revealed bag “" + bagName + "”");
+      if (r.ok) {
+        // Hiding is a DM secret (GM-only log); revealing is public by
+        // design and stays on the shared log, as before.
+        if (hidden) PT.store.appendGmLog(env, "hid bag “" + bagName + "” from players");
+        else PT.store.appendLog(env, "revealed bag “" + bagName + "”");
+      }
       return r;
     });
   };
@@ -481,7 +588,11 @@
       var it = (doc.items || []).filter(function (i) { return i.id === itemId; })[0];
       if (!it) return false;
       it.qty = Math.max(0, (Number(it.qty) || 1) + delta);
-      label = it.name + " → " + it.qty;
+      // Curly-quoted, like every other log message that names an item:
+      // redactInLog only ever matches that exact quoted form (deliberately,
+      // to avoid over-matching free text), so an unquoted name here would
+      // be a true-name leak that survives an obscure done after this entry.
+      label = "“" + it.name + "” → " + it.qty;
       if (it.qty === 0) doc.items = doc.items.filter(function (i) { return i.id !== itemId; });
     }).then(function (r) {
       if (r.ok && label) PT.store.appendLog(env, "quantity: " + label + " in “" + bagName + "”");
@@ -561,9 +672,11 @@
       addedBy: env.playerName, addedAt: Date.now()
     };
     return mutateBag(bagId, function (doc) { doc.items.push(item); }).then(function (r) {
-      // Log message deliberately omits the true name (it's player-visible) —
-      // see obscureItem below for the same rule.
-      if (r.ok) PT.store.appendLog(env, "obscured an item in “" + bagName + "” — players now see “" + surfaceDesc + "”");
+      // GM-only log: which item got obscured and its surface text are a DM
+      // secret, same as obscureItem below. (No redaction needed here — this
+      // item is brand new, so its true name was never written to the
+      // shared log in the first place.)
+      if (r.ok) PT.store.appendGmLog(env, "obscured an item in “" + bagName + "” — players now see “" + surfaceDesc + "”");
       return r;
     });
   };
@@ -624,10 +737,21 @@
           if (!r.ok) {
             return { ok: false, err: "true item data was saved, but the bag update failed — the item is NOT yet obscured. Try again." };
           }
-          // Player-visible log: the surface text is fine to name, the true
-          // name never is.
-          return PT.store.appendLog(env, "obscured an item in “" + bagName + "” — players now see “" + surfaceDesc + "”")
-            .then(function () { return { ok: true }; });
+          // Item is now safely obscured. From here on, failures are
+          // reported as warnings, not as the operation failing — obscuring
+          // itself already succeeded and must not be retried on top of
+          // itself (stashObscuredTruth already ran, and re-running this
+          // whole call would fail at "item is already obscured" anyway).
+          //
+          // Redact the true name out of the SHARED log (it may still be
+          // sitting in older "added"/"moved" entries) before logging the
+          // obscure action itself, which goes to the GM-only log — which
+          // item got obscured, and the surface text the DM chose, are DM
+          // secrets, so that entry belongs there and not on the shared log.
+          return PT.store.redactInLog(it.name, "[hidden by the DM]").then(function (redactRes) {
+            return PT.store.appendGmLog(env, "obscured an item in “" + bagName + "” — players now see “" + surfaceDesc + "”")
+              .then(function () { return { ok: true, redactFailed: !redactRes.ok }; });
+          });
         });
       });
     });
@@ -640,6 +764,15 @@
   // try again, the true data was never at risk. Removing the copy first
   // would risk the opposite: a failed restore leaving the item stuck showing
   // the surface text with the only copy of its true data gone.
+  //
+  // Deliberately does NOT un-redact any "(redacted)" entries obscureItem
+  // left behind in the shared log — those stay showing "[hidden by the DM]"
+  // forever, even after a reveal. Restoring the old text there would mean
+  // storing (or re-deriving) the true name in the player-readable log
+  // again, which is exactly what redaction exists to prevent. The reveal
+  // below adds its own new entry naming the item instead; the log ends up
+  // with an honest trail (obscured -> later revealed) rather than history
+  // being quietly rewritten a second time.
   PT.store.revealItem = function (env, bagId, bagName, itemId) {
     if (!env.isGM) return Promise.resolve({ ok: false, err: "DM only" });
     if (!st.gmIndexH) return Promise.resolve({ ok: false, err: "GM index not available" });

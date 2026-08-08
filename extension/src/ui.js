@@ -63,6 +63,17 @@
     ".pt-item.pt-obscured{border-left:3px solid #b3455a;background:rgba(179,69,90,.10);padding-left:6px}",
     ".pt-truename{color:#b3455a;font-size:11px;margin-left:6px}",
     ".pt-warn{color:#e8b98a;font-size:11.5px;margin-top:8px;padding:6px 8px;border-left:3px solid #b3752f;background:rgba(179,117,47,.12)}",
+    // Log tab (INV-16 visible redaction, GM-only side log): a redacted
+    // entry keeps its "[hidden by the DM]" replacement text in the normal
+    // log colour, with only a small muted tag marking that a redaction
+    // happened — the redaction itself must be visible, not silent. A
+    // GM-only entry (DM secrets that never reach the shared log) gets the
+    // same crimson accent as hidden bags/obscured items elsewhere in the
+    // panel, plus an explicit "DM ONLY" tag — the DM must never mistake it
+    // for something players can also see.
+    ".pt-redacted{color:var(--pt-dim);font-size:11px;font-style:italic}",
+    ".pt-gmlog{border-left:3px solid #b3455a;padding-left:6px;background:rgba(179,69,90,.08)}",
+    ".pt-gmtag{background:#b3455a;color:#fff;font-size:9px;font-weight:bold;border-radius:3px;padding:1px 5px;margin-right:6px}",
     ".pt-itemname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default}",
     ".pt-itemmeta{color:var(--pt-dim);font-size:11.5px;margin-left:6px}",
     ".pt-qty{color:var(--pt-dim);min-width:32px;text-align:right}",
@@ -371,19 +382,19 @@
       c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Surface description (what players see):" })]));
       c.appendChild(PT.el("input", { type: "text", "data-f": "surface", placeholder: "a dull grey rod, warm to the touch" }));
       c.appendChild(PT.el("div", { class: "pt-note", text: "Players will see only this as the item's name — no stats, value, or true name. You can reveal it later in one click." }));
-      // Honest caveat: obscuring hides the item's DATA, but the activity log
-      // is player-readable and already names this item from when it was
-      // added or moved. Obscuring cannot un-say that, and silently rewriting
-      // the log would be worse than telling the DM.
+      // Obscuring now also redacts the item's true name out of any past log
+      // entries (INV-16 visible redaction) — no need to warn that the log
+      // still names it; instead tell the DM what actually happens to it.
       c.appendChild(PT.el("div", {
         class: "pt-warn",
-        text: "Note: the activity log already records this item by name from when it was added, and players can read the log. To keep an item secret from the start, shift-drop it from the compendium instead — that never logs the true name."
+        text: "Note: obscuring will also redact this item's name from past activity log entries. Players will see “[hidden by the DM]” there instead — the redaction itself is visible, not silent."
       }));
     }, function (c) {
       var surface = c.querySelector("[data-f=surface]").value.trim();
       if (!surface) return false; // empty input rejected — stay open
       PT.store.obscureItem(env, bag.id, bag.doc.name, item.id, surface).then(function (r) {
         if (!r.ok) ui.toast("Obscure failed: " + r.err);
+        else if (r.redactFailed) ui.toast("Item obscured, but its name could not be removed from older log entries — check the Log tab.");
         ui.refresh();
       });
     });
@@ -723,18 +734,38 @@
     matches.forEach(function (m) { body.appendChild(renderBag(m.bag, m.items)); });
   }
 
+  // DM sees the shared log AND the GM-only log (DM secrets: hidden bags,
+  // obscuring), merged and sorted by time, with GM-only entries visually
+  // unmistakable (pt-gmlog border/tint + a "DM ONLY" tag) — same principle
+  // as UI-7 elsewhere in this file: what's DM-only must never look
+  // ambiguous. Players only ever get the shared log; readGmLog() is never
+  // even called for them (their client's st.gmLogH is null anyway, since
+  // Roll20 withholds that handout's body server-side, but we don't rely on
+  // that alone here).
   function renderLog(body) {
     var wrap = PT.el("div", { class: "pt-log" }, [PT.el("div", { class: "pt-empty", text: "Loading…" })]);
     body.appendChild(wrap);
-    PT.store.readLog().then(function (entries) {
+    var logsP = env.isGM
+      ? Promise.all([PT.store.readLog(), PT.store.readGmLog()])
+      : PT.store.readLog().then(function (shared) { return [shared, []]; });
+    logsP.then(function (both) {
+      var entries = both[0].concat(both[1].map(function (e) {
+        var tagged = {};
+        for (var k in e) { if (e.hasOwnProperty(k)) tagged[k] = e[k]; }
+        tagged.gmOnly = true;
+        return tagged;
+      }));
+      entries.sort(function (a, b) { return a.t - b.t; });
       wrap.textContent = "";
       if (!entries.length) { wrap.appendChild(PT.el("div", { class: "pt-empty", text: "Nothing has happened yet." })); return; }
       entries.slice(-200).reverse().forEach(function (e) {
-        wrap.appendChild(PT.el("div", { class: "pt-log-entry" }, [
-          PT.el("span", { class: "pt-log-when", text: fmtWhen(e.t) }),
-          PT.el("span", { class: "pt-log-who", text: e.who + (e.gm ? " (DM)" : "") }),
-          PT.el("span", { text: e.msg })
-        ]));
+        var line = [];
+        if (e.gmOnly) line.push(PT.el("span", { class: "pt-gmtag", text: "DM ONLY" }));
+        line.push(PT.el("span", { class: "pt-log-when", text: fmtWhen(e.t) }));
+        line.push(PT.el("span", { class: "pt-log-who", text: e.who + (e.gm ? " (DM)" : "") }));
+        line.push(PT.el("span", { text: e.msg }));
+        if (e.redacted) line.push(PT.el("span", { class: "pt-redacted", text: " (redacted)" }));
+        wrap.appendChild(PT.el("div", { class: "pt-log-entry" + (e.gmOnly ? " pt-gmlog" : "") }, line));
       });
     });
   }

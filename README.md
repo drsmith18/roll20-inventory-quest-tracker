@@ -30,6 +30,9 @@ author's own table.** Not yet on the Chrome Web Store; it loads "unpacked"
 - Obscured items: the DM can disguise an item so players see only a written
   description; true stats live in DM-only storage and are revealed in one
   click (shift-drop from the compendium to obscure on arrival)
+- A DM-only side log for secret actions (hidden bags, obscuring), plus
+  visible redaction of an item's name from past log entries when you
+  obscure it
 
 Not yet built: sending items to character sheets, sub-bags, and the quest
 tracker. That's the current order of work.
