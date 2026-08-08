@@ -13,7 +13,8 @@ author's own table.** Not yet on the Chrome Web Store; it loads "unpacked"
 ## What works today
 
 - One or more bags, visible to the whole party, live-syncing between
-  everyone in under a second or two
+  everyone in under a second or two (the DM creates bags; everyone can
+  fill them)
 - Drag items from the Roll20 compendium straight onto a bag — name,
   description, weight, cost and rarity come along automatically
 - Manual items for homebrew ("a strangely warm rock")

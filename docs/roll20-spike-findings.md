@@ -268,3 +268,32 @@ assignment state is the decided behaviour for non-2024 sheets.
   rendered our records correctly in this test, but sheet updates can change
   the store schema (`sheetVersion` exists for a reason). The writer must
   check `sheetVersion` and refuse to write a shape it doesn't recognise.
+
+---
+
+## Post-spike finding — players cannot create handouts (8 Aug 2026)
+
+Found in live build testing, not in the spike phase, because every spike
+created handouts from the GM client.
+
+**Observed:** a player-role client calling `Campaign.handouts.create(...)`
+gets `permission_denied` from Firebase on `/campaign-<redacted>/handouts/<id>`
+and again on the follow-up `hand-blobs` write. Silent as ever at the call
+site — no exception, no callback error.
+
+**Consequence:** bags are handouts, so **players cannot create bags**. PRD
+INV-4 and decision Q1 ("anyone can create bags") were not implementable as
+written. DR's decision: bag creation is DM-only for v1 (PRD v0.5). Every
+other player right is unaffected — adding, moving and removing items and
+editing coin all write to handouts that already exist, which S1 verified.
+
+**If it ever needs revisiting:** player-created bags could live as entries
+inside a single shared container handout the DM's client creates, since S1
+proved players can write to shared handout bodies. The cost is that such
+bags could not be hidden or per-player revealed individually, because
+visibility is a property of the handout, not of entries within it.
+
+**Lesson for the remaining build:** the spikes only ever exercised the GM
+path for object *creation*. Any future feature where a player's client
+creates a Roll20 object (characters, pages, macros) should be assumed
+forbidden until tested from the player account.

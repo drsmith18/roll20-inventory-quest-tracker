@@ -536,21 +536,26 @@
     }
     body.appendChild(searchRow);
 
-    var addRow = PT.el("div", { class: "pt-row" }, [
-      PT.el("button", {
-        class: "pt-btn", text: "+ New bag",
-        onclick: function () {
-          var name = prompt("Name for the new bag:");
-          if (!name || !name.trim()) return;
-          var hidden = env.isGM ? confirm("Create it HIDDEN from players?\n\nOK = hidden (only you see it)\nCancel = visible to the party") : false;
-          PT.store.createBag(env, name.trim(), hidden).then(function (r) {
-            if (!r.ok) ui.toast("Couldn't create the bag: " + r.err);
-            ui.refresh();
-          });
-        }
-      })
-    ]);
-    body.appendChild(addRow);
+    // Bag creation is DM-only (INV-4, revised): Roll20's server refuses
+    // handout creation by a non-GM, and every bag is a handout. Offering the
+    // button to players would only ever produce a failure, so it is absent
+    // rather than disabled.
+    if (env.isGM) {
+      body.appendChild(PT.el("div", { class: "pt-row" }, [
+        PT.el("button", {
+          class: "pt-btn", text: "+ New bag",
+          onclick: function () {
+            var name = prompt("Name for the new bag:");
+            if (!name || !name.trim()) return;
+            var hidden = confirm("Create it HIDDEN from players?\n\nOK = hidden (only you see it)\nCancel = visible to the party");
+            PT.store.createBag(env, name.trim(), hidden).then(function (r) {
+              if (!r.ok) ui.toast("Couldn't create the bag: " + r.err);
+              ui.refresh();
+            });
+          }
+        })
+      ]));
+    }
 
     var term = searchTerm.trim();
     if (!term) {

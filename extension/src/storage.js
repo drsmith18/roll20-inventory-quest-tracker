@@ -313,6 +313,12 @@
   };
 
   PT.store.createBag = function (env, name, hidden) {
+    // INV-4 (revised 8 Aug 2026): DM-only. Roll20 rejects handout creation
+    // by non-GMs server-side, so this is enforced by the platform whatever
+    // the UI does; refusing here keeps the reason honest.
+    if (!env.isGM) {
+      return Promise.resolve({ ok: false, err: "Only the DM can create bags — Roll20 does not let players create the journal handouts bags are stored in." });
+    }
     var body = {
       partyToolsBag: SCHEMA, name: name, desc: "", items: [],
       purse: { pp: 0, gp: 0, ep: 0, sp: 0, cp: 0 },

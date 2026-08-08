@@ -1,6 +1,7 @@
 # Party Tools for Roll20 — Product Requirements
 
-**Status:** Draft v0.4 — post-spike revision. All six spikes are answered (see `roll20-spike-findings.md`); both blockers passed. Changes in v0.4: C3/C4/C6 resolved, scope narrowed to Jumpgate + 2024 sheet (DEL-8), §11 open items closed.
+**Status:** Draft v0.5 — build-phase revision. INV-4/Q1 changed: bag creation is DM-only, forced by a Roll20 platform limit found in live testing (see INV-4).
+**Previously:** v0.4 — post-spike revision. All six spikes are answered (see `roll20-spike-findings.md`); both blockers passed. Changes in v0.4: C3/C4/C6 resolved, scope narrowed to Jumpgate + 2024 sheet (DEL-8), §11 open items closed.
 **Type:** Product requirements. Describes *what* the product must do and for whom. Deliberately excludes technical design.
 
 ---
@@ -78,7 +79,9 @@ The quest tracker is optional and can be switched off per game; the inventory is
 - INV-1 — Every game has at least one bag, created automatically on first use ("Party Loot" or similar) so there is no empty-state setup step.
 - INV-2 — Bags have a name and, optionally, a short description and an icon or colour.
 - INV-3 — The DM can create, rename, reorder, and delete bags.
-- INV-4 — Players can also create bags. Players can rename and delete bags they created while those bags are empty; the DM can rename, delete, or merge any bag. This keeps a long campaign from accumulating "misc", "misc 2" and "stuff" with nobody able to clear them.
+- INV-4 — *(REVISED v0.5, 8 Aug 2026 — see the note below.)* **Only the DM can create bags.** Players can rename and delete bags they created (a set that is empty in practice under this revision) while those bags are empty; the DM can rename, delete, or merge any bag. This keeps a long campaign from accumulating "misc", "misc 2" and "stuff" with nobody able to clear them.
+
+  **Why this changed:** live testing on 8 Aug 2026 showed Roll20's server refuses handout creation by a non-GM (`permission_denied` on `/handouts/<id>`). Every bag is a handout, so player-created bags are not possible in the chosen storage model. DR's decision: accept DM-only creation for v1 rather than add a second storage shape. Players retain every other inventory right — adding, moving, removing items, and editing coin — because those write to handouts that already exist, which S1 proved works. If the limit bites in real play, the fallback is to hold player-created bags as entries inside one shared container handout (players *can* write to shared bodies); the cost is that such bags could not be individually hidden or per-player revealed.
 - INV-5 — Bags can be **hidden**. A hidden bag and its entire contents are invisible to players; they must have no indication it exists.
 - INV-6 — The DM can reveal a hidden bag to the party, and can re-hide it.
 - INV-7 — Deleting a non-empty bag requires confirmation and must offer to move contents elsewhere rather than destroy them.
@@ -219,7 +222,7 @@ The quest tracker is optional and can be switched off per game; the inventory is
 | View hidden bags | ✗ | ✓ |
 | Add / remove / move items | ✓ | ✓ |
 | Add / remove currency | ✓ | ✓ |
-| Create bags | ✓ | ✓ |
+| Create bags | ✗ | ✓ |
 | Hide / reveal bags | ✗ | ✓ |
 | Claim item to own character | ✓ | ✓ |
 | Create / edit quests and steps | ✗ | ✓ |
@@ -279,7 +282,7 @@ All questions raised in v0.1 are now resolved. Recorded here with the reasoning,
 
 | # | Question | Decision | Reasoning |
 |---|---|---|---|
-| Q1 | Who can create bags? | Anyone | Players self-organise without asking; DM retains delete and merge as the tidy-up valve |
+| Q1 | Who can create bags? | ~~Anyone~~ → **DM only** (revised 8 Aug 2026) | Original reasoning: players self-organise without asking. Overturned by platform reality, not preference — Roll20 forbids non-GMs from creating handouts, and bags are handouts. See INV-4. |
 | Q2 | Bag nesting depth | One level | Covers pouch-in-a-bag-of-holding without becoming a file tree |
 | Q3 | Unidentified items in v1? | Yes | Core D&D pattern; accepted cost is a third per-item visibility state |
 | Q4 | Undo from the log? | DM only | Mirrors the table — players ask the DM to fix a mistake. Log kept for the life of the game |
