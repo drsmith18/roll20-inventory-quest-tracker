@@ -15,7 +15,7 @@ both 2014 and 2024 rules) on the Jumpgate backend.
 | S1 | Player write to shared handout (BLOCKING) | **PASS** — certified 8 Aug 2026 |
 | S1b | gmnotes withheld on shared handouts? | **NO — leak confirmed.** gmnotes is unsafe on any player-visible handout |
 | S2 | Write items/coin to character sheets (BLOCKING) | **PASS on the 2024 sheet** — item + coin written, rendered by the sheet UI, cleanly restored. 2014 sheet: deferred by scope decision, INV-24 fallback applies |
-| S3 | Compendium drop resolution | Not started |
+| S3 | Compendium drop resolution | Nearly answered — jQuery-UI-only drops confirmed; same-origin getPages endpoint returns full sheet-ready item data; miss/failure shapes pending |
 | S4 | Handout size limits | **ANSWERED** — no ceiling up to 8MB (verified with 12s persistence wait); no practical constraint |
 | S5 | Concurrent writes | **ANSWERED** — silent last-write-wins; loser discarded with no signal |
 | S6 | Legacy backend | **CLOSED by scope decision (DR, 8 Aug 2026)** — v1 is Jumpgate-only; Legacy untested and unsupported |
@@ -317,3 +317,73 @@ Legacy is out of scope. The spike brief explicitly allowed this outcome
 3. PRD C3, Q9 and DEL-1's framing ("v1 supports 2014 and 2024") narrows to:
    full support on 2024, assignment-only on everything else. To be folded
    into the post-spike PRD revision.
+
+---
+
+## S3 — Compendium drop resolution (8 Aug 2026) — nearly answered
+
+**How tested:** fetch/XHR hooks in the main frame captured the VTT's own
+compendium traffic during a search and a drop; a test drop target registered
+both an HTML5 drop listener and a jQuery UI droppable.
+
+### Drop mechanics — findings confirmed, plus one correction to my own tooling
+
+- **Only the jQuery UI drop fired.** The HTML5 `drop` event never arrived
+  despite `draggable="true"` on the source element. The panel must register
+  as a jQuery UI droppable (UI-5); an HTML5-only listener sees nothing.
+- The dragged element (`.compendium-page__upper`) carries exactly two data
+  attributes: `data-pagename` (percent-encoded, e.g. `Items%3ALongsword`)
+  and `data-expansionid` (e.g. `33335`). Nothing else. As per the original
+  findings: a drop yields an identifier, not an item.
+- **Do not call `ui.draggable.data()` wholesale** — it contains a reference
+  to the cross-origin compendium iframe's Window and stringifying it throws
+  a SecurityError. Read the two attributes off the element and stop.
+- Search results are category-ambiguous: "Longsword" appears as both an
+  *Items* page and a *Proficiencies* page with identical names in the list
+  (the test drop of the "2014 Longsword" actually delivered
+  `Proficiencies%3ALongsword`). The panel must check the category prefix of
+  `data-pagename` and only accept `Items:`.
+
+### Resolution — better than the brief assumed
+
+The GraphQL endpoint is only the **search** path. On an actual drop the VTT
+calls a **same-origin, plain-GET** endpoint:
+
+```
+GET /compendium/compendium/getPages
+    ?bookName=dnd5e
+    &pages[]=<pagename, double-encoded (Items%253ALongsword)>
+    &sharedCompendium=<campaign id>
+    &expansionId=<expansion id>
+    &dragDropRequest=true
+```
+
+It returns an array of JSON strings, each a full page record:
+`{name, id, expansion, expansioninitials, data:{...}}`, where `data` holds
+the item's display fields (Item Type, Properties, Rarity, Mastery, filters)
+**and `data-datarecords` — the exact Beacon payload set the 2024 sheet uses
+to build its integrant graph**: an Item payload (name, description, weight,
+properties, cost, weaponData, equipData) plus parent-linked Attack and
+Damage payloads. Observed for the 2024 Longsword in full.
+
+**Consequences**
+
+1. INV-10 is satisfiable with **no dependency on the undocumented
+   cross-origin GraphQL endpoint for resolution** — same-origin `getPages`
+   provides everything, with the caller's own cookies. Fragility drops
+   substantially versus what C4/Q20 priced in.
+2. The `data-datarecords` payloads mean a compendium-dropped item can later
+   be pushed to a 2024 sheet **with its full attack/damage graph**, not just
+   the S2 plain-item shape — the payload format matches what S2 observed
+   inside the store.
+3. The captured GraphQL `searchPages` query (operation, variables
+   `{searchTerm, ruleSystem:"dnd5e"}`, full query text recorded in the raw
+   capture) is available if the product ever wants its own search box, but
+   is not needed for the drop flow.
+4. The 2014 record observed was the Proficiencies page (thin: type/source
+   only, empty `content`). The true 2014 *Items* record and the miss/failure
+   shapes are covered by `spikes/s3/resolve-test.js`, results pending.
+
+**Remaining before S3 closes:** the 2014 Items:Longsword record shape, and
+what a miss (unowned/absent item) and a nonexistent page return — which
+define when the product falls back to a name-only entry (INV-11).
