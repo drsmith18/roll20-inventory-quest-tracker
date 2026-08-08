@@ -4,7 +4,7 @@
 window.PartyTools = window.PartyTools || {};
 (function (PT) {
   "use strict";
-  PT.VERSION = "0.3.1";
+  PT.VERSION = "0.4.0";
   PT.KOFI_URL = "https://ko-fi.com/drsmith080";
   PT.ISSUES_URL = "https://github.com/drsmith18/roll20-inventory-quest-tracker/issues";
 
@@ -51,6 +51,25 @@ window.PartyTools = window.PartyTools || {};
     if (!parts.length) return "empty purse";
     var gpTotal = (PT.purseToCopper(purse) / 100).toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1");
     return parts.join(", ") + " (≈" + gpTotal + " gp)";
+  };
+
+  // Parses an item's free-text `cost` field ("15 GP", "1,200 gp", "1 CP",
+  // a bare number meaning gp, or missing/unparseable meaning 0) into copper,
+  // for view-only value sorting (INV-26). Never throws; always returns a
+  // number.
+  PT.costToCopper = function (cost) {
+    if (cost === undefined || cost === null) return 0;
+    var s = String(cost).trim();
+    if (!s) return 0;
+    s = s.replace(/,/g, "");
+    var m = s.match(/^(\d+(?:\.\d+)?)\s*([a-zA-Z]*)$/);
+    if (!m) return 0;
+    var num = parseFloat(m[1]);
+    if (isNaN(num)) return 0;
+    var unit = (m[2] || "gp").toLowerCase();
+    var mult = PT.COPPER_VALUE[unit];
+    if (!mult) return 0;
+    return Math.round(num * mult);
   };
 
   // Re-expresses a copper amount using GOLD as the largest denomination —

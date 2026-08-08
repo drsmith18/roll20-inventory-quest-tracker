@@ -383,6 +383,49 @@
     });
   };
 
+  // ---- bag metadata (INV-3/4) -------------------------------------------------
+  // Permission mirrors what the UI already hides the ✎ button for: the DM may
+  // edit any bag; a player may edit only a bag THEY created that is still
+  // empty (no items, no coins) — checked here too, against a freshly re-read
+  // doc, in case the UI's view is stale. Only the fields that actually change
+  // are written and logged; a no-op call makes no write.
+  PT.store.renameBag = function (env, bagId, newName, newDesc) {
+    newName = (newName || "").trim();
+    newDesc = newDesc == null ? "" : String(newDesc).trim();
+    if (!newName) return Promise.resolve({ ok: false, err: "name required" });
+    var h = st.bagHs[bagId] || handoutById(bagId);
+    if (!h) return Promise.resolve({ ok: false, err: "bag not found" });
+    return PT.store.readDoc(h).then(function (doc) {
+      if (!doc || !doc.partyToolsBag) return { ok: false, err: "bag not found" };
+      var canEdit = env.isGM || (doc.createdBy === env.playerName && !(doc.items || []).length && PT.purseToCopper(doc.purse) === 0);
+      if (!canEdit) return { ok: false, err: "you don't have permission to edit this bag" };
+      var change = null;
+      return mutateBag(bagId, function (doc2) {
+        var oldName = doc2.name;
+        var oldDesc = doc2.desc || "";
+        var nameChanged = oldName !== newName;
+        var descChanged = oldDesc !== newDesc;
+        if (!nameChanged && !descChanged) return false;
+        change = { nameChanged: nameChanged, descChanged: descChanged, oldName: oldName, newName: newName };
+        doc2.name = newName;
+        doc2.desc = newDesc;
+      }).then(function (r) {
+        if (r.ok && change) {
+          var msg;
+          if (change.nameChanged && change.descChanged) {
+            msg = "renamed bag “" + change.oldName + "” to “" + change.newName + "” and updated its description";
+          } else if (change.nameChanged) {
+            msg = "renamed bag “" + change.oldName + "” to “" + change.newName + "”";
+          } else {
+            msg = "updated the description of bag “" + change.newName + "”";
+          }
+          PT.store.appendLog(env, msg);
+        }
+        return r;
+      });
+    });
+  };
+
   // ---- item operations ------------------------------------------------------
   PT.store.addItem = function (env, bagId, bagName, item) {
     item.id = item.id || PT.uid();

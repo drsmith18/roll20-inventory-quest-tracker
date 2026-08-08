@@ -25,10 +25,10 @@ author's own table.** Not yet on the Chrome Web Store; it loads "unpacked"
 - Coin splitting with preview: convert-down maths, remainder stays in the
   purse, shares recorded against characters until taken
 - 🐞 one-click bug reporting (pre-filled GitHub issue) and ☕ [Ko-fi](https://ko-fi.com/drsmith080)
+- Search across all bags, per-bag sorting, and bag renaming
 
 Not yet built: sending items to character sheets, obscured/unidentified
-items, sub-bags, search & sort, and the quest tracker. That's the current
-order of work.
+items, sub-bags, and the quest tracker. That's the current order of work.
 
 ## Installing (no developer tools needed)
 

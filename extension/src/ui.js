@@ -8,6 +8,13 @@
   var env = null, snapshot = null, panel = null, launcher = null;
   var activeTab = "inventory";
   var pollTimer = null;
+  // INV-25 search box. Survives ui.refresh() re-renders (see renderBody's
+  // focus capture/restore) because it lives here, outside the DOM, and
+  // renderInventory() rebuilds the input FROM this value on every render.
+  var searchTerm = "";
+  // INV-26 per-bag sort choice, keyed by bag id. View-only and intentionally
+  // NOT persisted — lost on reload is fine, it never touches storage.
+  var bagSort = {};
 
   // Palette follows Roll20's own dark UI: charcoal surfaces, thin grey
   // borders, off-white text, restrained crimson accent. Nothing purple.
@@ -64,7 +71,11 @@
     ".pt-about a{color:#7eb0d5}",
     ".pt-kofi{display:inline-block;background:#13c3ff;color:#092533 !important;font-weight:bold;border-radius:4px;padding:7px 16px;text-decoration:none;margin:4px 0}",
     ".pt-bug{display:inline-block;background:var(--pt-bg3);color:var(--pt-text) !important;border:1px solid var(--pt-edge2);border-radius:4px;padding:7px 16px;text-decoration:none;margin:4px 0}",
-    ".pt-note{color:var(--pt-dim);font-size:12px}"
+    ".pt-note{color:var(--pt-dim);font-size:12px}",
+    ".pt-searchrow{display:flex;gap:6px;margin:0 0 8px}",
+    ".pt-search-input{flex:1;min-width:0;background:#17181c;border:1px solid var(--pt-edge2);color:var(--pt-text);border-radius:4px;padding:5px 8px;font:inherit}",
+    ".pt-sortsel{background:var(--pt-bg3);border:1px solid var(--pt-edge2);color:var(--pt-text);font-size:11px;border-radius:4px;padding:2px 3px;max-width:82px}",
+    ".pt-bagdesc{color:var(--pt-dim);font-size:11.5px;padding:0 10px 6px}"
   ].join("\n");
 
   function posKey() { return "partytools-" + window.campaign_id + "-" + env.playerId; }
@@ -303,13 +314,96 @@
     });
   }
 
+  function editBagModal(bag) {
+    var d = bag.doc;
+    modal("Edit bag", function (c) {
+      c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Name:" })]));
+      c.appendChild(PT.el("input", { type: "text", "data-f": "name", value: d.name }));
+      c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Description (optional):" })]));
+      c.appendChild(PT.el("input", { type: "text", "data-f": "desc", value: d.desc || "" }));
+    }, function (c) {
+      var name = c.querySelector("[data-f=name]").value.trim();
+      if (!name) return false;
+      var desc = c.querySelector("[data-f=desc]").value.trim();
+      PT.store.renameBag(env, bag.id, name, desc).then(function (r) {
+        if (!r.ok) ui.toast("Update failed: " + r.err);
+        ui.refresh();
+      });
+    });
+  }
+
+  // ---- search (INV-25) & sort (INV-26) helpers -------------------------------
+  function itemMatches(it, needleLower) {
+    var n = (it.name || "").toLowerCase();
+    var desc = (it.description || "").toLowerCase();
+    return n.indexOf(needleLower) !== -1 || desc.indexOf(needleLower) !== -1;
+  }
+
+  // View-only, stable (ties keep their original relative order — the tie
+  // break is the original index, not object identity), and never mutates
+  // `items` or the stored doc: callers always get a new array back.
+  function sortItems(items, mode) {
+    var decorated = (items || []).map(function (it, i) { return { it: it, i: i }; });
+    var cmp;
+    if (mode === "name") {
+      cmp = function (a, b) {
+        var an = (a.it.name || "").toLowerCase(), bn = (b.it.name || "").toLowerCase();
+        return an < bn ? -1 : an > bn ? 1 : a.i - b.i;
+      };
+    } else if (mode === "qty") {
+      cmp = function (a, b) {
+        var d = (Number(b.it.qty) || 0) - (Number(a.it.qty) || 0);
+        return d !== 0 ? d : a.i - b.i;
+      };
+    } else if (mode === "value") {
+      cmp = function (a, b) {
+        var d = PT.costToCopper(b.it.cost) - PT.costToCopper(a.it.cost);
+        return d !== 0 ? d : a.i - b.i;
+      };
+    } else if (mode === "weight") {
+      cmp = function (a, b) {
+        var d = (Number(b.it.weight) || 0) - (Number(a.it.weight) || 0);
+        return d !== 0 ? d : a.i - b.i;
+      };
+    } else {
+      return items || []; // "added" = storage order, unchanged
+    }
+    decorated.sort(cmp);
+    return decorated.map(function (x) { return x.it; });
+  }
+
   // ---- rendering ------------------------------------------------------------
-  function renderBag(bag) {
+  // itemsOverride: used by the search view (INV-25) to render only the
+  // matching items for a bag whose NAME didn't itself match. Sorting (INV-26)
+  // always applies on top of whichever list is showing.
+  function renderBag(bag, itemsOverride) {
     var d = bag.doc;
     var head = PT.el("div", { class: "pt-baghead" }, [
       PT.el("span", { class: "pt-bagname", text: d.name, title: d.name })
     ]);
     if (bag.hidden) head.appendChild(PT.el("span", { class: "pt-hidden-badge", text: "HIDDEN — players can NOT see this" }));
+    // INV-4: the DM can edit any bag; a player only a bag they created that
+    // is still empty. Not shown at all when the viewer can't use it.
+    var canEditBag = env.isGM || (d.createdBy === env.playerName && !(d.items || []).length && PT.purseToCopper(d.purse) === 0);
+    if (canEditBag) {
+      head.appendChild(PT.el("button", {
+        class: "pt-iconbtn", text: "✎", title: "Rename or describe this bag",
+        onclick: function () { editBagModal(bag); }
+      }));
+    }
+    var sortSel = PT.el("select", { class: "pt-sortsel", title: "Sort this bag's items (view only)" }, [
+      PT.el("option", { value: "added", text: "Added" }),
+      PT.el("option", { value: "name", text: "Name" }),
+      PT.el("option", { value: "qty", text: "Quantity" }),
+      PT.el("option", { value: "value", text: "Value" }),
+      PT.el("option", { value: "weight", text: "Weight" })
+    ]);
+    sortSel.value = bagSort[bag.id] || "added";
+    sortSel.addEventListener("change", function () {
+      bagSort[bag.id] = sortSel.value;
+      renderBody(); // view-only: no store call, nothing to refresh from the server
+    });
+    head.appendChild(sortSel);
     head.appendChild(PT.el("button", {
       class: "pt-iconbtn", text: "+", title: "Add an item by name",
       onclick: function () { addItemModal(bag); }
@@ -362,8 +456,9 @@
       ]));
     });
     var items = PT.el("div", { class: "pt-items" });
-    if (!(d.items || []).length) items.appendChild(PT.el("div", { class: "pt-empty", text: "No items yet — drag from the compendium or use +" }));
-    (d.items || []).forEach(function (it) {
+    var displayItems = sortItems(itemsOverride || d.items || [], bagSort[bag.id] || "added");
+    if (!displayItems.length) items.appendChild(PT.el("div", { class: "pt-empty", text: "No items yet — drag from the compendium or use +" }));
+    displayItems.forEach(function (it) {
       var titleBits = [];
       if (it.itemType) titleBits.push(it.itemType);
       if (it.rarity) titleBits.push(it.rarity);
@@ -393,7 +488,8 @@
         })
       ]));
     });
-    var card = PT.el("div", { class: "pt-bag" + (bag.hidden ? " pt-hidden-bag" : "") }, [head, purse].concat(assignRows, [items]));
+    var descDiv = d.desc ? PT.el("div", { class: "pt-bagdesc", text: d.desc }) : null;
+    var card = PT.el("div", { class: "pt-bag" + (bag.hidden ? " pt-hidden-bag" : "") }, [head, descDiv, purse].concat(assignRows, [items]));
     // every bag is its own drop target (UI-5: it's obvious which bag receives)
     PT.drops.arm(card, function (payload) {
       ui.toast("Fetching item details…", 1500);
@@ -410,6 +506,26 @@
 
   function renderInventory(body) {
     if (snapshot.readOnly) body.appendChild(PT.el("div", { class: "pt-note", text: "⚠ This game's data was written by a NEWER version of Party Tools. Everything is read-only until you update the extension." }));
+
+    // INV-25: search box. Rebuilt from `searchTerm` on every render, so the
+    // module-level variable — not this element — is the source of truth;
+    // renderBody()'s focus capture/restore is what keeps typing feeling
+    // uninterrupted across a rebuild (see renderBody below).
+    var searchRow = PT.el("div", { class: "pt-searchrow" });
+    var searchInput = PT.el("input", { type: "text", class: "pt-search-input", placeholder: "Search items…", value: searchTerm });
+    searchInput.addEventListener("input", function () {
+      searchTerm = searchInput.value;
+      renderBody();
+    });
+    searchRow.appendChild(searchInput);
+    if (searchTerm) {
+      searchRow.appendChild(PT.el("button", {
+        class: "pt-iconbtn", text: "✕", title: "Clear search",
+        onclick: function () { searchTerm = ""; renderBody(); }
+      }));
+    }
+    body.appendChild(searchRow);
+
     var addRow = PT.el("div", { class: "pt-row" }, [
       PT.el("button", {
         class: "pt-btn", text: "+ New bag",
@@ -425,8 +541,43 @@
       })
     ]);
     body.appendChild(addRow);
-    if (!snapshot.bags.length) body.appendChild(PT.el("div", { class: "pt-empty", text: "No bags yet." }));
-    snapshot.bags.forEach(function (bag) { body.appendChild(renderBag(bag)); });
+
+    var term = searchTerm.trim();
+    if (!term) {
+      if (!snapshot.bags.length) body.appendChild(PT.el("div", { class: "pt-empty", text: "No bags yet." }));
+      snapshot.bags.forEach(function (bag) { body.appendChild(renderBag(bag)); });
+      return;
+    }
+
+    // Bags whose name matches, or that hold at least one matching item, stay
+    // visible; a name match shows ALL of that bag's items, otherwise only
+    // the matching ones render (case-insensitive substring, name+description).
+    var needle = term.toLowerCase();
+    var matches = [];
+    var totalItems = 0;
+    snapshot.bags.forEach(function (bag) {
+      var d = bag.doc;
+      var nameMatch = (d.name || "").toLowerCase().indexOf(needle) !== -1;
+      var all = d.items || [];
+      var shown = nameMatch ? all : all.filter(function (it) { return itemMatches(it, needle); });
+      if (nameMatch || shown.length) {
+        matches.push({ bag: bag, items: shown });
+        totalItems += shown.length;
+      }
+    });
+
+    if (!matches.length) {
+      body.appendChild(PT.el("div", { class: "pt-empty", text: "Nothing matches “" + term + "”." }));
+      return;
+    }
+
+    var itemWord = totalItems === 1 ? "item" : "items";
+    var bagWord = matches.length === 1 ? "bag" : "bags";
+    body.appendChild(PT.el("div", {
+      class: "pt-note",
+      text: totalItems + " " + itemWord + " in " + matches.length + " " + bagWord + " match “" + term + "”"
+    }));
+    matches.forEach(function (m) { body.appendChild(renderBag(m.bag, m.items)); });
   }
 
   function renderLog(body) {
@@ -474,8 +625,32 @@
   }
 
   // ---- panel shell ----------------------------------------------------------
+  // renderBody() fully rebuilds the tab body, including the INV-25 search
+  // input. That happens not just on tab clicks but every 4s from the poll
+  // (see togglePanel/ui.refresh below) — while the user may be mid-keystroke
+  // in that very input. A rebuilt <input> is a NEW DOM node, so simply
+  // recreating it would silently drop focus and caret position out from
+  // under typing. The fix: note whether the search input was focused (and
+  // where its caret was) BEFORE tearing the body down, then look up the
+  // freshly-built search input by class afterwards and restore both. The
+  // typed text itself never depends on the DOM — renderInventory() rebuilds
+  // the input's value from the module-level `searchTerm`, so that part
+  // survives regardless.
+  function captureSearchFocus(body) {
+    var el = body.querySelector(".pt-search-input");
+    if (el && document.activeElement === el) return { start: el.selectionStart, end: el.selectionEnd };
+    return null;
+  }
+  function restoreSearchFocus(body, info) {
+    if (!info) return;
+    var el = body.querySelector(".pt-search-input");
+    if (!el) return;
+    el.focus();
+    try { el.setSelectionRange(info.start, info.end); } catch (e) {}
+  }
   function renderBody() {
     var body = panel.querySelector(".pt-body");
+    var focusInfo = captureSearchFocus(body);
     body.textContent = "";
     if (activeTab === "inventory") renderInventory(body);
     else if (activeTab === "log") renderLog(body);
@@ -483,6 +658,7 @@
     panel.querySelectorAll(".pt-tab").forEach(function (t) {
       t.classList.toggle("pt-active", t.getAttribute("data-tab") === activeTab);
     });
+    restoreSearchFocus(body, focusInfo);
   }
 
   ui.refresh = function () {
