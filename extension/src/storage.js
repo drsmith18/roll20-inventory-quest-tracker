@@ -78,7 +78,14 @@
     } catch (e) { return Promise.resolve({ ok: false, err: "create threw: " + e.message }); }
     return PT.delay(createDelay()).then(function () {
       return writeMerged(h, function () { return firstDoc; }).then(function (res) {
-        return res.ok ? { ok: true, h: h } : { ok: false, err: res.err };
+        if (res.ok) return { ok: true, h: h };
+        // Observed live: Roll20's server rejects handout creation by a
+        // non-GM (permission_denied on /handouts/<id>), silently as ever.
+        // Say so plainly instead of reporting a generic write failure.
+        if (!window.is_gm) {
+          return { ok: false, err: "Roll20 does not let players create journal handouts, which is where bags are stored. Ask your DM to create the bag.", notPermitted: true };
+        }
+        return { ok: false, err: res.err };
       });
     });
   }
@@ -297,11 +304,23 @@
   }
   PT.store.mutateBag = mutateBag;
 
+  // Did this user create this bag? Prefers the player ID; falls back to the
+  // display name only for bags written before IDs were recorded.
+  PT.store.ownsBag = function (env, doc) {
+    if (!doc) return false;
+    if (doc.createdById) return doc.createdById === env.playerId;
+    return !!doc.createdBy && doc.createdBy === env.playerName;
+  };
+
   PT.store.createBag = function (env, name, hidden) {
     var body = {
       partyToolsBag: SCHEMA, name: name, desc: "", items: [],
       purse: { pp: 0, gp: 0, ep: 0, sp: 0, cp: 0 },
-      createdBy: env.playerName
+      // createdBy is for display; createdById is what ownership checks use.
+      // Display names are not unique, and Roll20's "view as player" mode
+      // keeps the GM's name while reporting is_gm false.
+      createdBy: env.playerName,
+      createdById: env.playerId
     };
     if (hidden && !env.isGM) return Promise.resolve({ ok: false, err: "only the DM can create hidden bags" });
     return createHandout(hidden ? "gm" : "all", body).then(function (res) {
@@ -397,7 +416,7 @@
     if (!h) return Promise.resolve({ ok: false, err: "bag not found" });
     return PT.store.readDoc(h).then(function (doc) {
       if (!doc || !doc.partyToolsBag) return { ok: false, err: "bag not found" };
-      var canEdit = env.isGM || (doc.createdBy === env.playerName && !(doc.items || []).length && PT.purseToCopper(doc.purse) === 0);
+      var canEdit = env.isGM || (PT.store.ownsBag(env, doc) && !(doc.items || []).length && PT.purseToCopper(doc.purse) === 0);
       if (!canEdit) return { ok: false, err: "you don't have permission to edit this bag" };
       var change = null;
       return mutateBag(bagId, function (doc2) {

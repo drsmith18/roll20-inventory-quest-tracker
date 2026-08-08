@@ -19,9 +19,12 @@
   // Palette follows Roll20's own dark UI: charcoal surfaces, thin grey
   // borders, off-white text, restrained crimson accent. Nothing purple.
   var CSS = [
-    ":root{--pt-bg:#1f2126;--pt-bg2:#26282e;--pt-bg3:#2e3138;--pt-edge:#3d4046;--pt-edge2:#4a4e55;--pt-text:#e1e3e6;--pt-dim:#9aa0a8;--pt-accent:#c9302c;--pt-gold:#dcc275}",
-    "#pt-launcher{position:fixed;right:0;top:38%;z-index:99990;background:var(--pt-bg2);color:var(--pt-text);border:1px solid var(--pt-edge2);border-right:none;border-radius:6px 0 0 6px;padding:10px 7px;cursor:pointer;font:bold 12px Arial,Helvetica,sans-serif;writing-mode:vertical-rl;letter-spacing:1.5px;user-select:none;box-shadow:-2px 2px 8px rgba(0,0,0,.35)}",
+    // --pt-dim lightened from #9aa0a8: at 12px on charcoal the old value was
+    // legible by contrast-ratio maths but genuinely hard to read in use.
+    ":root{--pt-bg:#1f2126;--pt-bg2:#26282e;--pt-bg3:#2e3138;--pt-edge:#3d4046;--pt-edge2:#4a4e55;--pt-text:#e1e3e6;--pt-dim:#b4bac2;--pt-accent:#c9302c;--pt-gold:#e8cf85}",
+    "#pt-launcher{position:fixed;right:0;top:38%;z-index:99990;background:var(--pt-bg2);border:1px solid var(--pt-edge2);border-right:none;border-radius:6px 0 0 6px;padding:9px 7px;cursor:pointer;user-select:none;box-shadow:-2px 2px 8px rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;line-height:0}",
     "#pt-launcher:hover{background:var(--pt-bg3)}",
+    "#pt-launcher svg{display:block}",
     "#pt-panel{position:fixed;z-index:99991;width:440px;height:62vh;min-width:340px;min-height:280px;max-width:92vw;max-height:92vh;resize:both;overflow:hidden;display:flex;flex-direction:column;background:var(--pt-bg);color:var(--pt-text);border:1px solid var(--pt-edge2);border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,.6);font:13px/1.5 Arial,Helvetica,sans-serif}",
     "#pt-panel *{box-sizing:border-box}",
     ".pt-head{display:flex;align-items:center;gap:8px;padding:9px 12px;background:#17181c;border-bottom:1px solid var(--pt-edge);border-radius:6px 6px 0 0;cursor:move;user-select:none}",
@@ -72,6 +75,13 @@
     ".pt-kofi{display:inline-block;background:#13c3ff;color:#092533 !important;font-weight:bold;border-radius:4px;padding:7px 16px;text-decoration:none;margin:4px 0}",
     ".pt-bug{display:inline-block;background:var(--pt-bg3);color:var(--pt-text) !important;border:1px solid var(--pt-edge2);border-radius:4px;padding:7px 16px;text-decoration:none;margin:4px 0}",
     ".pt-note{color:var(--pt-dim);font-size:12px}",
+    // The split preview is a money confirmation — it gets full-strength text,
+    // not the muted note colour.
+    ".pt-prev-head{color:var(--pt-text);font-size:13px;margin-bottom:8px}",
+    ".pt-prev-share{color:var(--pt-gold);font-size:14px;font-weight:bold;padding:3px 0}",
+    ".pt-prev-left{color:var(--pt-text);font-size:12.5px;margin-top:10px;padding-top:8px;border-top:1px solid var(--pt-edge)}",
+    ".pt-rolebadge{font-size:10px;font-weight:bold;letter-spacing:.4px;border-radius:3px;padding:2px 6px;background:var(--pt-bg3);color:var(--pt-dim);border:1px solid var(--pt-edge2)}",
+    ".pt-rolebadge.pt-isgm{background:#3a2b1c;color:#e8cf85;border-color:#7a5f34}",
     ".pt-searchrow{display:flex;gap:6px;margin:0 0 8px}",
     ".pt-search-input{flex:1;min-width:0;background:#17181c;border:1px solid var(--pt-edge2);color:var(--pt-text);border-radius:4px;padding:5px 8px;font:inherit}",
     ".pt-sortsel{background:var(--pt-bg3);border:1px solid var(--pt-edge2);color:var(--pt-text);font-size:11px;border-radius:4px;padding:2px 3px;max-width:82px}",
@@ -255,13 +265,13 @@
       leftover.cp = (Number(leftover.cp) || 0) + remCp;
 
       modal("Confirm split — " + bag.doc.name, function (c) {
-        c.appendChild(PT.el("div", { class: "pt-note", text: "Splitting " + totalCp.toLocaleString() + " cp between " + n + " recipient" + (n === 1 ? "" : "s") + ":" }));
-        var list = PT.el("div", { style: "margin:8px 0" });
+        c.appendChild(PT.el("div", { class: "pt-prev-head", text: "Splitting " + totalCp.toLocaleString() + " cp between " + n + " recipient" + (n === 1 ? "" : "s") + ":" }));
+        var list = PT.el("div", { style: "margin:6px 0" });
         state.recipients.forEach(function (name) {
-          list.appendChild(PT.el("div", { text: "→ " + name + ": " + shareLabel }));
+          list.appendChild(PT.el("div", { class: "pt-prev-share", text: "→ " + name + ": " + shareLabel }));
         });
         c.appendChild(list);
-        c.appendChild(PT.el("div", { class: "pt-note", text: "Stays in the purse: " + PT.purseLabel(leftover) }));
+        c.appendChild(PT.el("div", { class: "pt-prev-left", text: "Stays in the purse: " + PT.purseLabel(leftover) }));
       }, function () {
         var recipients = state.recipients.slice();
         PT.store.splitCoins(env, bag.id, bag.doc.name, { whole: whole, specific: state.specific, recipients: recipients }).then(function (r) {
@@ -384,7 +394,7 @@
     if (bag.hidden) head.appendChild(PT.el("span", { class: "pt-hidden-badge", text: "HIDDEN — players can NOT see this" }));
     // INV-4: the DM can edit any bag; a player only a bag they created that
     // is still empty. Not shown at all when the viewer can't use it.
-    var canEditBag = env.isGM || (d.createdBy === env.playerName && !(d.items || []).length && PT.purseToCopper(d.purse) === 0);
+    var canEditBag = env.isGM || (PT.store.ownsBag(env, d) && !(d.items || []).length && PT.purseToCopper(d.purse) === 0);
     if (canEditBag) {
       head.appendChild(PT.el("button", {
         class: "pt-iconbtn", text: "✎", title: "Rename or describe this bag",
@@ -723,9 +733,16 @@
     env = envInfo;
     document.head.appendChild(PT.el("style", { text: CSS }));
 
-    // Plain text: emoji rotate with vertical writing-mode and render
-    // differently per platform (the backpack read as "a red arrow").
-    launcher = PT.el("div", { id: "pt-launcher", text: "PARTY TOOLS", title: "Party Tools — shared inventory", onclick: togglePanel });
+    // Icon only. Emoji rotated by the vertical writing-mode read as a red
+    // arrow; vertical text was legible but visually noisy. An inline SVG
+    // chest renders identically everywhere and needs no rotation.
+    launcher = PT.el("div", { id: "pt-launcher", title: "Party Tools — shared inventory", onclick: togglePanel });
+    launcher.innerHTML =
+      '<svg width="22" height="22" viewBox="0 0 16 16" aria-label="Party Tools">' +
+      '<path fill="#e8cf85" d="M2.2 6.4a3.8 3.8 0 0 1 3.8-3.8h4a3.8 3.8 0 0 1 3.8 3.8v1.1H2.2z"/>' +
+      '<rect x="2.2" y="8.1" width="11.6" height="5.5" rx="1" fill="#a8834c"/>' +
+      '<rect x="6.9" y="5.9" width="2.2" height="4.3" rx=".5" fill="#5d4526"/>' +
+      '<circle cx="8" cy="10.4" r=".55" fill="#e8cf85"/></svg>';
     document.body.appendChild(launcher);
 
     panel = PT.el("div", { id: "pt-panel", style: "display:none;top:120px;right:40px" });
@@ -737,8 +754,18 @@
       '<rect x="2" y="7.8" width="12" height="6" rx="1" fill="#a8834c"/>' +
       '<rect x="6.9" y="5.6" width="2.2" height="4.2" rx=".5" fill="#6e5330"/></svg>';
     titleSpan.appendChild(document.createTextNode("Party Tools"));
+    // Role badge: the extension's view of who you are, always visible. A
+    // player testing in view-as mode looks identical to a real player, and
+    // without this there is no way to tell why DM-only actions are missing.
+    var roleBadge = PT.el("span", {
+      class: "pt-rolebadge" + (env.isGM ? " pt-isgm" : ""),
+      text: env.isGM ? "DM" : "PLAYER",
+      title: env.isGM
+        ? "Party Tools sees you as the GM of this game."
+        : "Party Tools sees you as a player. If you are the GM, you may be in Roll20's “view as player” mode — leave it and reload."
+    });
     var head = PT.el("div", { class: "pt-head" }, [
-      titleSpan,
+      titleSpan, roleBadge,
       PT.el("button", { class: "pt-iconbtn", text: "🐞", title: "Report a bug on GitHub", onclick: function () { window.open(bugReportUrl(), "_blank"); } }),
       PT.el("button", { class: "pt-iconbtn", text: "☕", title: "Support on Ko-fi", onclick: function () { window.open(PT.KOFI_URL, "_blank"); } }),
       PT.el("button", { class: "pt-iconbtn", text: "—", title: "Minimise (UI-10: also hides instantly for screen shares)", onclick: togglePanel })
