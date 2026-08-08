@@ -1,27 +1,92 @@
-# Roll20 Party Tools — shared inventory & quest tracker
+# Party Tools for Roll20 — shared inventory & quest tracker
 
-A Chrome extension (in development) that adds a shared party inventory and an
-optional quest tracker to a Roll20 game, for D&D groups. All state is stored
-inside the Roll20 campaign itself as handouts — no external server, no accounts.
+A Chrome extension that adds a **shared party inventory** to a Roll20 game —
+bags of items and coins the whole party can see and edit, with a full
+who-did-what activity log. A DM-controlled quest tracker is planned next.
+All data is stored *inside* the Roll20 campaign itself (as journal
+handouts), so there is no external server, no accounts, and nothing to host.
 
-**Current status: spike phase.** No extension exists yet. We are testing the
-assumptions the design depends on before building anything. When there is an
-extension to install, step-by-step loading instructions will appear here.
+**Status: v0.1 — first working inventory build, being tested at the
+author's own table.** Not yet on the Chrome Web Store; it loads "unpacked"
+(instructions below).
+
+## What works today
+
+- One or more bags, visible to the whole party, live-syncing between
+  everyone in under a second or two
+- Drag items from the Roll20 compendium straight onto a bag — name,
+  description, weight, cost and rarity come along automatically
+- Manual items for homebrew ("a strangely warm rock")
+- Coin purse per bag with a reasons log; quantities, moves, deletes
+- DM-only **hidden bags** for prepped loot — Roll20's servers genuinely
+  withhold the contents from players, and the DM view marks hidden bags
+  unmistakably
+- An activity log of every change: who, what, when
+- 🐞 one-click bug reporting (pre-filled GitHub issue) and ☕ [Ko-fi](https://ko-fi.com/drsmith080)
+
+Not yet built: coin **splitting** between characters, sending items to
+character sheets, obscured/unidentified items, sub-bags, search & sort, and
+the quest tracker. That's the current order of work.
+
+## Installing (no developer tools needed)
+
+1. Download this repository: green **Code** button above → **Download
+   ZIP**, then unzip it somewhere you won't delete by accident.
+2. In Chrome, go to `chrome://extensions` (type it in the address bar).
+3. Turn on **Developer mode** (toggle, top-right corner).
+4. Click **Load unpacked** (button, top-left) and select the **`extension`
+   folder** inside the unzipped download — the folder that contains
+   `manifest.json`, not the whole repository.
+5. Open (or reload) your Roll20 game. A **🎒 PARTY** tab appears on the
+   right edge of the screen. Click it.
+
+**First time in a game:** the DM opens the panel first — that creates the
+storage and a "Party Loot" bag. Players who open it before the DM has done
+this will see a message saying so.
+
+**Updating:** download the new ZIP, replace the old folder, then on
+`chrome://extensions` click the ↻ reload icon on the Party Tools card, and
+reload the Roll20 tab.
+
+## Reporting bugs (please do!)
+
+Click the **🐞** button in the panel — it opens a GitHub issue with the
+technical details already filled in; you just describe what happened. You
+need a free [GitHub account](https://github.com/signup) to post. No GitHub
+account? Tell your DM and they can file it:
+[issue tracker](https://github.com/drsmith18/roll20-inventory-quest-tracker/issues).
+
+## Things worth knowing
+
+- **Your data lives in your game's journal**, in handouts named `PT-…` with
+  deliberately meaningless names (so hidden loot never leaks through a
+  title). Don't delete or edit those handouts by hand — that *is* the
+  party's inventory.
+- Works on Roll20's **Jumpgate** engine and, for now, Chrome. Games on the
+  old Legacy engine get a polite "not supported" note.
+- **Trust model:** hidden bags are genuinely hidden (server-enforced), but
+  the tool doesn't try to stop a determined cheat editing *visible* shared
+  data — same as the table itself, it runs on trust.
 
 ## What's in this repository
 
 | Path | What it is |
 |---|---|
-| `docs/roll20-party-tools-prd.md` | Product requirements — what this is and who it's for. Every requirement has an ID (INV-, QST-, SYS-, ROLE-, UI-). |
-| `docs/roll20-technical-findings.md` | What was verified by inspecting Roll20 live on 8 Aug 2026. Ground truth. |
-| `docs/roll20-spike-brief.md` | Six tests (S1–S6) that must be answered before product code is written. S1 and S2 are blocking. |
-| `spikes/` | Throwaway test code for the spikes. Pasted into the browser console on a Roll20 test game, by a human. Not part of the product. |
-
-Spike results are written to `docs/roll20-spike-findings.md` as they come in.
+| `extension/` | The Chrome extension — the actual product |
+| `docs/roll20-party-tools-prd.md` | Product requirements (v0.4, post-spike). Every requirement has an ID |
+| `docs/roll20-technical-findings.md` | What was verified by inspecting Roll20 live, 8 Aug 2026 |
+| `docs/roll20-spike-brief.md` | The six make-or-break tests that were run before any code |
+| `docs/roll20-spike-findings.md` | The answers — all six spikes, with evidence |
+| `spikes/` | Throwaway console-test code from the spike phase; kept for reference |
 
 ## Ground rules
 
-- All spike testing happens in a dedicated **test game** with a dedicated
-  second test account — never in a live campaign.
-- Nothing in this repo may contain credentials, session tokens, campaign IDs,
-  or anything else from a real Roll20 account.
+- All testing happens in a dedicated test game with a dedicated second
+  account — never in a live campaign until a build has survived the test
+  game.
+- Nothing in this repo may contain credentials, session tokens, campaign
+  IDs, or anything else from a real Roll20 account.
+
+## Support
+
+If Party Tools is useful at your table: [ko-fi.com/drsmith080](https://ko-fi.com/drsmith080) ☕
