@@ -648,10 +648,23 @@
     el.focus();
     try { el.setSelectionRange(info.start, info.end); } catch (e) {}
   }
+  // Every bag card registers itself as a jQuery UI droppable. Clearing the
+  // body with textContent="" rips those elements out behind jQuery's back,
+  // so their droppable registrations survive in $.ui.ddmanager forever —
+  // and we re-render on every poll AND every search keystroke, so stale
+  // registrations would pile up all session and slow every later drag.
+  // jQuery's .empty() runs the cleanup that destroys them properly.
+  function clearBody(body) {
+    try {
+      if (window.$ && $.fn && $.fn.empty) { $(body).empty(); return; }
+    } catch (e) { /* fall through to the plain wipe */ }
+    body.textContent = "";
+  }
+
   function renderBody() {
     var body = panel.querySelector(".pt-body");
     var focusInfo = captureSearchFocus(body);
-    body.textContent = "";
+    clearBody(body);
     if (activeTab === "inventory") renderInventory(body);
     else if (activeTab === "log") renderLog(body);
     else renderAbout(body);
