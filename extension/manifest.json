@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Party Tools for Roll20",
+  "version": "0.1.0",
+  "description": "Shared party inventory (and later, quest tracker) for Roll20 games. Stores everything inside the campaign itself as handouts.",
+  "content_scripts": [
+    {
+      "matches": ["https://app.roll20.net/editor*", "https://app.roll20.net/editor/*"],
+      "js": [
+        "src/util.js",
+        "src/env.js",
+        "src/storage.js",
+        "src/drops.js",
+        "src/ui.js",
+        "src/main.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ]
+}
