@@ -39,7 +39,7 @@ the quest tracker. That's the current order of work.
 4. Click **Load unpacked** (button, top-left) and select the **`extension`
    folder** inside the unzipped download — the folder that contains
    `manifest.json`, not the whole repository.
-5. Open (or reload) your Roll20 game. A **🎒 PARTY** tab appears on the
+5. Open (or reload) your Roll20 game. A **PARTY TOOLS** tab appears on the
    right edge of the screen. Click it.
 
 **Firefox** (experimental): open `about:debugging#/runtime/this-firefox`,

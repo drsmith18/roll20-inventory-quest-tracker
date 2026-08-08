@@ -385,12 +385,22 @@
     env = envInfo;
     document.head.appendChild(PT.el("style", { text: CSS }));
 
-    launcher = PT.el("div", { id: "pt-launcher", text: "🎒 PARTY", title: "Party Tools — shared inventory", onclick: togglePanel });
+    // Plain text: emoji rotate with vertical writing-mode and render
+    // differently per platform (the backpack read as "a red arrow").
+    launcher = PT.el("div", { id: "pt-launcher", text: "PARTY TOOLS", title: "Party Tools — shared inventory", onclick: togglePanel });
     document.body.appendChild(launcher);
 
     panel = PT.el("div", { id: "pt-panel", style: "display:none;top:120px;right:40px" });
+    var titleSpan = PT.el("span", { class: "pt-title" });
+    // Inline SVG chest: renders identically everywhere, unlike emoji.
+    titleSpan.innerHTML =
+      '<svg width="15" height="15" viewBox="0 0 16 16" style="vertical-align:-2px;margin-right:6px">' +
+      '<path fill="#dcc275" d="M2 6a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v1.2H2z"/>' +
+      '<rect x="2" y="7.8" width="12" height="6" rx="1" fill="#a8834c"/>' +
+      '<rect x="6.9" y="5.6" width="2.2" height="4.2" rx=".5" fill="#6e5330"/></svg>';
+    titleSpan.appendChild(document.createTextNode("Party Tools"));
     var head = PT.el("div", { class: "pt-head" }, [
-      PT.el("span", { class: "pt-title", text: "🎒 Party Tools" }),
+      titleSpan,
       PT.el("button", { class: "pt-iconbtn", text: "🐞", title: "Report a bug on GitHub", onclick: function () { window.open(bugReportUrl(), "_blank"); } }),
       PT.el("button", { class: "pt-iconbtn", text: "☕", title: "Support on Ko-fi", onclick: function () { window.open(PT.KOFI_URL, "_blank"); } }),
       PT.el("button", { class: "pt-iconbtn", text: "—", title: "Minimise (UI-10: also hides instantly for screen shares)", onclick: togglePanel })
