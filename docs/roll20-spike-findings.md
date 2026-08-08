@@ -14,11 +14,11 @@ both 2014 and 2024 rules) on the Jumpgate backend.
 |---|---|---|
 | S1 | Player write to shared handout (BLOCKING) | **PASS** — certified 8 Aug 2026 |
 | S1b | gmnotes withheld on shared handouts? | **NO — leak confirmed.** gmnotes is unsafe on any player-visible handout |
-| S2 | Write items/coin to character sheets (BLOCKING) | **PASS on the 2024 sheet** — item + coin written, rendered by the sheet UI, cleanly restored. 2014 sheet deferred (needs own game) |
+| S2 | Write items/coin to character sheets (BLOCKING) | **PASS on the 2024 sheet** — item + coin written, rendered by the sheet UI, cleanly restored. 2014 sheet: deferred by scope decision, INV-24 fallback applies |
 | S3 | Compendium drop resolution | Not started |
 | S4 | Handout size limits | **ANSWERED** — no ceiling up to 8MB (verified with 12s persistence wait); no practical constraint |
 | S5 | Concurrent writes | **ANSWERED** — silent last-write-wins; loser discarded with no signal |
-| S6 | Legacy backend | Not started (awaiting identification of the Legacy campaign) |
+| S6 | Legacy backend | **CLOSED by scope decision (DR, 8 Aug 2026)** — v1 is Jumpgate-only; Legacy untested and unsupported |
 
 ---
 
@@ -293,3 +293,27 @@ blocking:
    to a character they control; Roll20's permission model should allow the
    same path (`controlledby` on the character), but it has not been
    exercised. Small follow-up test with the player account when convenient.
+
+---
+
+## S6 — Legacy backend — **CLOSED by scope decision** (8 Aug 2026)
+
+Not tested. DR's call: v1 focuses on the 2024 sheet and the Jumpgate backend;
+Legacy is out of scope. The spike brief explicitly allowed this outcome
+("declaring v1 Jumpgate-only is a legitimate outcome").
+
+**Consequences**
+
+1. The extension must detect the backend and refuse cleanly on Legacy games
+   (a clear "this game runs Roll20's Legacy engine, which isn't supported"
+   message, not a broken panel). The marker is available in page context —
+   the VTT startup logs report `VTT Engine: jumpgate`, and the findings doc
+   recorded `release: "jumpgate"` on campaign data.
+2. The same decision defers the 2014-sheet write integration (S2 residual 1).
+   v1 sheet transfers target `dnd2024byroll20` only; in games with any other
+   sheet, transfers use INV-24's explicit "assigned to" state and the player
+   moves the item by hand. This is now a decided product behaviour, not a
+   fallback that happens by accident.
+3. PRD C3, Q9 and DEL-1's framing ("v1 supports 2014 and 2024") narrows to:
+   full support on 2024, assignment-only on everything else. To be folded
+   into the post-spike PRD revision.
