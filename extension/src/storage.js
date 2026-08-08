@@ -94,38 +94,77 @@
   }
 
   // ---- discovery -----------------------------------------------------------
-  function scan() {
-    var candidates = Campaign.handouts.models.filter(function (h) {
+  function ptHandoutsByName() {
+    return Campaign.handouts.models.filter(function (h) {
       return (h.get("name") || "").indexOf(PREFIX) === 0 && !h.get("archived");
+    });
+  }
+
+  function scan() {
+    // Sort by id so selection is DETERMINISTIC across clients: if duplicate
+    // storage sets ever exist, the DM and every player pick the SAME one
+    // (the earliest-created), instead of latching onto different sets.
+    var candidates = ptHandoutsByName().sort(function (a, b) {
+      return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
     });
     return Promise.all(candidates.map(function (h) {
       return readBlob(h).then(function (t) { return { h: h, doc: PT.tryJson(t) }; });
     })).then(function (list) {
-      var found = { index: null, gmIndex: null, log: null, bags: {} };
+      var found = { index: null, gmIndex: null, log: null, bags: {}, readable: 0, extraIndexes: [] };
       list.forEach(function (e) {
-        if (!e.doc) return; // unreadable = hidden-from-us or foreign; ignore
-        if (e.doc.partyToolsIndex) found.index = e;
-        else if (e.doc.partyToolsGmIndex) found.gmIndex = e;
-        else if (e.doc.partyToolsLog) found.log = e;
+        if (!e.doc) return; // unreadable = hidden-from-us, or body not loaded yet
+        found.readable++;
+        if (e.doc.partyToolsIndex) { if (found.index) found.extraIndexes.push(e.h.id); else found.index = e; }
+        else if (e.doc.partyToolsGmIndex) { if (!found.gmIndex) found.gmIndex = e; }
+        else if (e.doc.partyToolsLog) { if (!found.log) found.log = e; }
         else if (e.doc.partyToolsBag) found.bags[e.h.id] = e;
       });
       return found;
     });
   }
 
+  // Retry scan until an index is readable. Roll20 delivers the handout LIST
+  // before their bodies, so a first scan can see the handouts exist yet read
+  // every body as empty. Concluding "no storage" then is what created
+  // duplicate sets (the DM re-initialised on top of real data). We only give
+  // up — and, for the DM, create fresh — when NO PT- handouts exist by name
+  // at all, which is the true first-run signal.
+  function scanUntilReady() {
+    var t0 = Date.now();
+    return (function attempt() {
+      return scan().then(function (found) {
+        if (found.index) return found;
+        var existByName = ptHandoutsByName().length;
+        if (existByName > 0 && Date.now() - t0 < 20000) {
+          return PT.delay(1000).then(attempt);
+        }
+        return found; // genuinely nothing (create), or gave up after 20s
+      });
+    })();
+  }
+
   // ---- init (DEL-3 for the DM, DEL-4 for players) --------------------------
   PT.store.init = function (env) {
-    return scan().then(function (found) {
+    return scanUntilReady().then(function (found) {
       if (found.index) {
         if ((found.index.doc.partyToolsIndex || 0) > SCHEMA) st.readOnly = true;
         st.indexH = found.index.h;
         st.gmIndexH = found.gmIndex ? found.gmIndex.h : null;
         st.logH = found.log ? found.log.h : null;
         st.ready = true;
-        return { state: st.readOnly ? "readOnly" : "ready" };
+        if (found.extraIndexes.length) {
+          PT.log("WARNING: " + found.extraIndexes.length + " duplicate storage set(s) present; using earliest. Run PartyTools.store.wipeAll() as DM to reset, or clean up PT- handouts by hand.");
+        }
+        return { state: st.readOnly ? "readOnly" : "ready", duplicates: found.extraIndexes.length };
+      }
+      if (ptHandoutsByName().length > 0) {
+        // Handouts exist but no index became readable in time. Do NOT create
+        // (that caused the duplication). For a player this is a load hiccup;
+        // for the DM it may be a damaged set. Either way, surface it.
+        return { state: "notReady" };
       }
       if (!env.isGM) return { state: "noStorage" }; // players never initialise a game
-      // First run as DM: index + gm index + log + default bag (INV-1).
+      // Genuine first run as DM: index + gm index + log + default bag (INV-1).
       return createHandout("all", {
         partyToolsBag: SCHEMA, name: "Party Loot", desc: "", items: [],
         purse: { pp: 0, gp: 0, ep: 0, sp: 0, cp: 0 }
@@ -143,6 +182,18 @@
         });
       });
     });
+  };
+
+  // Danger tool, DM-only, for the console: delete EVERY PT- handout so the
+  // game can re-initialise cleanly. Used to clear the duplicate sets created
+  // by the pre-fix build. Reload the page as DM afterwards.
+  PT.store.wipeAll = function () {
+    var doomed = ptHandoutsByName();
+    PT.log("wiping " + doomed.length + " PT- handout(s)…");
+    doomed.forEach(function (h) { try { h.destroy(); } catch (e) {} });
+    st.ready = false; st.indexH = st.gmIndexH = st.logH = null; st.bagHs = {};
+    PT.log("done. Reload the page as the DM to recreate storage.");
+    return doomed.length;
   };
 
   // ---- snapshot for the UI --------------------------------------------------

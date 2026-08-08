@@ -294,6 +294,20 @@
       PT.el("a", { class: "pt-kofi", href: PT.KOFI_URL, target: "_blank", rel: "noopener", text: "☕ Support on Ko-fi" })
     ]));
     about.appendChild(PT.el("p", { class: "pt-note", text: "If this tool is useful at your table, a coffee keeps it maintained." }));
+    if (env.isGM) {
+      about.appendChild(PT.el("hr", { style: "border-color:#37305c;margin:12px 0" }));
+      about.appendChild(PT.el("p", { class: "pt-note", text: "DM tools:" }));
+      about.appendChild(PT.el("button", {
+        class: "pt-btn pt-danger", text: "Reset all Party Tools data",
+        onclick: function () {
+          if (!confirm("This DELETES every Party Tools bag, item, coin and log in this game and starts fresh. It cannot be undone. Continue?")) return;
+          if (!confirm("Really sure? All party inventory in this game will be gone.")) return;
+          var n = PT.store.wipeAll();
+          ui.toast("Deleted " + n + " storage handout(s). Reload the Roll20 page to start clean.");
+        }
+      }));
+      about.appendChild(PT.el("p", { class: "pt-note", text: "Use this if the panel reports leftover/duplicate storage from an earlier version. Reload the page afterwards." }));
+    }
     body.appendChild(about);
   }
 
@@ -367,11 +381,32 @@
       if (saved && saved.left) { panel.style.left = saved.left; panel.style.top = saved.top; panel.style.right = "auto"; }
     } catch (e) {}
 
+    ui.state = state;
     if (state === "noStorage") {
       panel.querySelector(".pt-body").appendChild(PT.el("div", {
         class: "pt-empty",
         text: "This game doesn't have Party Tools data yet. The DM opens the panel once to set it up — players never initialise a game."
       }));
+      return;
+    }
+    if (state === "notReady") {
+      var body = panel.querySelector(".pt-body");
+      body.appendChild(PT.el("div", { class: "pt-empty", text: "Party Tools storage is still loading (or a previous version left it in a mixed state). Retrying…" }));
+      // Retry init a few times; Roll20 may just be slow delivering bodies.
+      var tries = 0;
+      var retry = setInterval(function () {
+        tries++;
+        PT.store.init(env).then(function (res) {
+          if (res.state === "ready" || res.state === "readOnly") {
+            clearInterval(retry); ui.state = res.state;
+            ui.refresh().then(renderBody);
+          } else if (tries >= 6) {
+            clearInterval(retry);
+            body.textContent = "";
+            body.appendChild(PT.el("div", { class: "pt-empty", text: "Storage didn't finish loading. Try reloading the Roll20 page. If it persists, the DM can reset from the ♥ tab." }));
+          }
+        });
+      }, 3000);
       return;
     }
     ui.refresh().then(renderBody);

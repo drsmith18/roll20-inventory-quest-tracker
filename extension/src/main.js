@@ -31,6 +31,8 @@
       PT.ui.mount(info, res.state);
       if (res.firstRun) PT.ui.toast("Party Tools is set up — a “Party Loot” bag has been created. Drag compendium items onto it!");
       if (res.state === "readOnly") PT.ui.toast("Party Tools: this game's data comes from a newer version — read-only until you update.");
+      if (res.state === "notReady") PT.ui.toast("Party Tools: storage exists but didn't finish loading. Reopen the panel in a moment, or reload the page.");
+      if (res.duplicates) PT.ui.toast("Party Tools notice: found " + res.duplicates + " leftover storage set(s) from an earlier version. Ask the DM to reset — see the ♥ tab.");
     });
   }).catch(function (e) {
     PT.log("boot failed:", e.message);
