@@ -133,6 +133,9 @@
     var t0 = Date.now();
     return (function attempt() {
       return scan().then(function (found) {
+        PT.log("scan: " + ptHandoutsByName().length + " PT- handout(s) by name, " +
+          found.readable + " readable, index=" + (found.index ? found.index.h.id : "none") +
+          (found.extraIndexes.length ? " (+" + found.extraIndexes.length + " duplicate index(es)!)" : ""));
         if (found.index) return found;
         var existByName = ptHandoutsByName().length;
         if (existByName > 0 && Date.now() - t0 < 20000) {
@@ -182,6 +185,29 @@
         });
       });
     });
+  };
+
+  // Console diagnostic: PartyTools.store.debug() — dumps what this client
+  // can see of the storage. Paste its output into a bug report.
+  PT.store.debug = function () {
+    var names = ptHandoutsByName();
+    console.log("[PartyTools] v" + PT.VERSION + " | role=" + (window.is_gm ? "DM" : "player") +
+      " | state=" + (st.readOnly ? "readOnly" : st.ready ? "ready" : "NOT ready"));
+    console.log("[PartyTools] chosen: index=" + (st.indexH ? st.indexH.id : "none") +
+      " gmIndex=" + (st.gmIndexH ? st.gmIndexH.id : "none") + " log=" + (st.logH ? st.logH.id : "none"));
+    console.log("[PartyTools] " + names.length + " PT- handout(s) by name; per-handout dump follows:");
+    names.sort(function (a, b) { return a.id < b.id ? -1 : 1; }).forEach(function (h) {
+      readBlob(h).then(function (b) {
+        var d = PT.tryJson(b);
+        var type = d ? (Object.keys(d).filter(function (k) { return k.indexOf("partyTools") === 0; })[0] || "?") : "UNREADABLE";
+        console.log("[PartyTools]   " + h.get("name") + " | id=" + h.id + " | " + type +
+          " | len=" + (b ? b.length : 0) +
+          (d && d.name ? " | bagName=" + d.name : "") +
+          (d && d.items ? " | items=" + d.items.length : "") +
+          (d && d.bags ? " | listsBags=" + JSON.stringify(d.bags) : ""));
+      });
+    });
+    return "dumping " + names.length + " handout(s)…";
   };
 
   // Danger tool, DM-only, for the console: delete EVERY PT- handout so the

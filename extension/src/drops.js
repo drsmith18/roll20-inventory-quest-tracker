@@ -11,16 +11,28 @@
 
   // Make `elem` accept compendium drags. onDrop(payload) fires immediately
   // with {pagename, expansionId} after category filtering.
+  // Roll20's tabletop (#editor-wrapper) is its own drop zone and fires on
+  // the same mouseup as ours — that's the "item also pops up in the app"
+  // double-drop. While a drag is over OUR panel, Roll20's zone is disabled;
+  // it comes back the moment the drag leaves or completes.
+  function setCanvasDrops(enabled) {
+    try {
+      var ew = $("#editor-wrapper");
+      if (ew.length && ew.droppable) ew.droppable(enabled ? "enable" : "disable");
+    } catch (e) { /* canvas zone not present or not a droppable — nothing to do */ }
+  }
+
   PT.drops.arm = function (elem, onDrop) {
     if (!window.$ || !$.fn || !$.fn.droppable) return false;
     try {
       $(elem).droppable({
         tolerance: "pointer",
         greedy: true,
-        over: function () { elem.classList.add("pt-drop-over"); },
-        out: function () { elem.classList.remove("pt-drop-over"); },
+        over: function () { elem.classList.add("pt-drop-over"); setCanvasDrops(false); },
+        out: function () { elem.classList.remove("pt-drop-over"); setCanvasDrops(true); },
         drop: function (event, ui) {
           elem.classList.remove("pt-drop-over");
+          setTimeout(function () { setCanvasDrops(true); }, 100);
           var el = ui && ui.draggable && ui.draggable[0];
           if (!el || !el.getAttribute) return;
           var pagename = el.getAttribute("data-pagename") || "";

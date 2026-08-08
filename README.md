@@ -30,6 +30,8 @@ the quest tracker. That's the current order of work.
 
 ## Installing (no developer tools needed)
 
+**Chrome** (main supported browser):
+
 1. Download this repository: green **Code** button above → **Download
    ZIP**, then unzip it somewhere you won't delete by accident.
 2. In Chrome, go to `chrome://extensions` (type it in the address bar).
@@ -39,6 +41,13 @@ the quest tracker. That's the current order of work.
    `manifest.json`, not the whole repository.
 5. Open (or reload) your Roll20 game. A **🎒 PARTY** tab appears on the
    right edge of the screen. Click it.
+
+**Firefox** (experimental): open `about:debugging#/runtime/this-firefox`,
+click **Load Temporary Add-on…**, and select the `manifest.json` file inside
+the `extension` folder. Needs Firefox 128 or newer. Note "temporary" is
+Firefox's word, not ours: the add-on unloads when Firefox closes and has to
+be loaded again next time. That's a Firefox restriction on unsigned
+extensions; a permanent Firefox install comes with store signing, later.
 
 **First time in a game:** the DM opens the panel first — that creates the
 storage and a "Party Loot" bag. Players who open it before the DM has done
