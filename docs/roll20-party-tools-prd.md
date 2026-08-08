@@ -1,6 +1,6 @@
 # Party Tools for Roll20 — Product Requirements
 
-**Status:** Draft v0.3 — v0.2 plus pre-spike corrections (ROLE-3 rewording, C6 added, SC renumbering); change notes inline
+**Status:** Draft v0.4 — post-spike revision. All six spikes are answered (see `roll20-spike-findings.md`); both blockers passed. Changes in v0.4: C3/C4/C6 resolved, scope narrowed to Jumpgate + 2024 sheet (DEL-8), §11 open items closed.
 **Type:** Product requirements. Describes *what* the product must do and for whom. Deliberately excludes technical design.
 
 ---
@@ -257,19 +257,19 @@ Verified live: a player's client receives the existence and names of every GM-on
 **C2 — State lives in Roll20 handouts. RESOLVED.**
 Roll20 runs on Firebase and every seated client is already on an authenticated, realtime, per-campaign store. Storing state as handouts inside the campaign gives per-campaign scoping, cross-session persistence, live sync and server-enforced hiding, with no hosting cost and no accounts. The cost is that the product is bound to Roll20's data model and the hosted multi-group ambition is deferred rather than designed for.
 
-**C3 — Writing to character sheets is sheet-specific, and v1 targets two sheets.**
-"Send this to the player's inventory" means different things on different character sheets, and Roll20 supports many. v1 supports D&D 5e under both the 2014 and 2024 rulesets — which in Roll20 terms means two distinct character sheets and two compendium sets, with item fields that do not fully line up (2024 changed item properties and weapon handling). Two consequences: the item model must store whatever it is handed rather than assume a fixed schema, and a game should declare which ruleset it uses so transfers target the right sheet. Everything else falls back to INV-24.
+**C3 — Writing to character sheets is sheet-specific. REVISED in v0.4 (spike S2 + scope decision).**
+Verified: sheet writes work end-to-end on the D&D 2024 sheet (`dnd2024byroll20`), including background-loading a character's data without the sheet being opened, and were rendered correctly by Roll20's own UI. The 2024 sheet is a Beacon-architecture sheet (one JSON document per character), which shares nothing with the classic 2014 sheet's attribute rows. Decision (DR, 8 Aug 2026): **v1 writes to the 2024 sheet only.** On any other sheet, transfers use INV-24's explicit "assigned to" state and the player moves the item by hand — a decided behaviour, not a silent degradation. The item model still stores whatever it is handed (unchanged).
 
-**C4 — Compendium content and drag payloads.**
-What data actually travels with a compendium drag, and whether it's enough to satisfy INV-10, needs verifying early. If it's thin, the fallback is enriching from an open content source, which raises a licensing and correctness question about what the product stores and redistributes.
+**C4 — Compendium content and drag payloads. RESOLVED in v0.4 (spike S3).**
+A drag carries only two identifiers (jQuery UI drop, not HTML5). Resolution happens through a same-origin Roll20 endpoint (`getPages`) that returns everything INV-10 needs — name, description, stats, weight, value, rarity — plus the exact payload graph the 2024 sheet consumes, so a dropped item can later be pushed to a sheet with its full attack/damage records. No dependency on the cross-origin GraphQL endpoint for resolution (it serves search only), and no open-content enrichment needed, so the licensing question falls away: the product stores what Roll20 itself hands the entitled user at drop time. Unresolvable items (unowned book, or nonexistent — indistinguishable, HTTP 200 stub with no `id`) fall back to a name-only entry (INV-11).
 
 **C5 — Extension distribution.**
 Chrome Web Store and Firefox add-on review, plus the ongoing maintenance risk that any Roll20 UI change can break the integration. Not a v1 feature question, but it shapes how much the product should depend on Roll20's page structure.
 
-**C6 — Three storage-layout gaps in Q19, found in pre-spike review (v0.3).**
-1. An obscured item (INV-16) sits in a *revealed* bag, whose handout body every player's client can read. Its true name and stats therefore cannot be stored in that body — they need GM-only storage. Candidate: the bag handout's `gmnotes` field, **if** spike S1b confirms Roll20 withholds `gmnotes` on shared handouts the way it does on GM-only ones. Otherwise, a parallel GM-only handout per bag.
-2. Quests must be player-visible but not player-editable (QST-19). Roll20 separates viewing (`inplayerjournals`) from editing (`controlledby`), so the quest handout can be read-only to players — but then player notes (QST-20) cannot live in it. Notes need a separate player-writable store.
-3. The activity log is one handout that every client writes. It is the one place Q19's "concurrent edits never collide" argument fails — spike S5's result applies to it most of all — and anyone with write access can also edit history, so the log is evidence, not proof (see ROLE-3).
+**C6 — Three storage-layout gaps in Q19, found in pre-spike review (v0.3). ALL RESOLVED in v0.4.**
+1. Obscured items (INV-16): spike S1b showed `gmnotes` **leaks** on shared handouts, so the gmnotes candidate is dead. Obscured items' true names and stats live in a **GM-only side handout**; the revealed bag body carries only the DM-written surface description.
+2. Quest notes: confirmed — quests are player-visible, read-only handouts (server-enforced via `controlledby`, per S1), and player notes (QST-20) live in a separate player-writable store.
+3. Activity log: spike S5 confirmed the fear — simultaneous writes to one body silently discard the loser. The log is **sharded per writer** (each client appends only to its own log handout; readers merge by timestamp), which also means each shard has a single author, blunting the tamper concern. All writes, everywhere, are verified by re-read and reapplied if lost.
 
 ---
 
@@ -303,9 +303,14 @@ All questions raised in v0.1 are now resolved. Recorded here with the reasoning,
 
 ### Still genuinely open
 
-- **Two blocking assumptions, both unverified.** Whether a player can write to a shared handout body and have it sync, and whether items and coin can be written to the 2014 and 2024 sheets given attributes load lazily. Both are covered by the spike brief and must be answered before v1 work starts.
-- **Three lesser unknowns.** Handout body size limits against a long campaign, behaviour on the Legacy backend, and what Roll20 does on simultaneous writes to the same handout (SYS-7).
-- **One added in v0.3.** Whether `gmnotes` on a *shared* handout is withheld from players server-side, which decides where obscured-item true stats live (C6.1). Covered by spike S1b.
+*(v0.4: nothing. All items below were answered by the spikes on 8 Aug 2026 — see `roll20-spike-findings.md` for evidence.)*
+
+- ~~Player write to shared handouts~~ — **PASS** (S1): writes work, sync ~611 ms, read-only server-enforced.
+- ~~Items and coin to the sheets~~ — **PASS on 2024** (S2), verified in Roll20's UI; 2014 out of v1 scope (DEL-8).
+- ~~Size limits~~ — no ceiling to 8 MB (S4). ~~Legacy~~ — out of scope (S6/DEL-8). ~~Simultaneous writes~~ — silent last-write-wins (S5), answered by per-writer log shards and verify-and-retry.
+- ~~gmnotes on shared handouts~~ — leaks (S1b); obscured-item data goes in GM-only handouts (C6.1).
+
+One residual worth naming: a **player-client** write to a character the player controls is expected to work via the same path S2 proved GM-side, but hasn't been exercised. Ten-minute check before the transfer feature ships.
 
 ---
 
@@ -342,4 +347,5 @@ These were absent from v0.1 and v0.2. The values below are proposed defaults, no
 - **DEL-4 — First run, player.** On first open the panel finds the game's existing storage and shows the current inventory. If none exists, it says so plainly rather than creating anything — players never initialise a game.
 - **DEL-5 — Schema versioning.** Stored data carries a schema version from the first commit. When the extension meets data written by a newer version than it understands, it goes read-only and says so, rather than corrupting a live campaign. Migrations run once, by the DM's client, and are logged.
 - **DEL-6 — Journal hygiene.** All storage handouts live in one clearly-named journal folder so the DM's own journal stays navigable. Names are opaque identifiers, per C1.
-- **DEL-7 — Testing.** A second free Roll20 account, invited to a test game as a player, is required equipment. Nothing about shared state, permissions, or reveal can be tested from a single account. Set this up before any build work.
+- **DEL-7 — Testing.** A second free Roll20 account, invited to a test game as a player, is required equipment. Nothing about shared state, permissions, or reveal can be tested from a single account. *(v0.4: in place and used throughout the spikes.)*
+- **DEL-8 — Platform scope (added v0.4, DR's decision).** v1 supports the **Jumpgate** backend and full sheet-writes on the **D&D 2024 sheet** only. The extension detects the backend and declines cleanly on Legacy games; on non-2024 sheets, item and coin transfers use INV-24's assignment state. Revisit both if real-table demand appears.
