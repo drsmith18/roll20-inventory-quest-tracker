@@ -491,7 +491,18 @@
     var recipients = (opts && opts.recipients) || [];
     var n = recipients.length;
     var result = null;
+    // One id for this split attempt, stamped on every assignment it writes.
+    // writeMerged retries when its confirmation read looks stale — including
+    // the case where the write DID land. Without this marker the retry would
+    // re-run the mutation against a doc that already contains the split and
+    // deduct the coins a second time. Money must be exactly-once.
+    var splitId = PT.uid();
+    var alreadyApplied = false;
     return mutateBag(bagId, function (doc) {
+      if ((doc.assignments || []).some(function (a) { return a.splitId === splitId; })) {
+        alreadyApplied = true;
+        return false;
+      }
       doc.purse = doc.purse || {};
       var cur = doc.purse;
       var deduct = {};
@@ -513,10 +524,13 @@
       doc.assignments = doc.assignments || [];
       var label = PT.coinLabel(PT.copperToGpMax(perCp));
       recipients.forEach(function (name) {
-        doc.assignments.push({ id: PT.uid(), to: name, cp: perCp, label: label, t: Date.now(), by: env.playerName });
+        doc.assignments.push({ id: PT.uid(), splitId: splitId, to: name, cp: perCp, label: label, t: Date.now(), by: env.playerName });
       });
       result = { totalCp: totalCp, perCp: perCp, remCp: remCp, label: label };
     }).then(function (r) {
+      // The split landed on an earlier attempt; the retry correctly declined
+      // to apply it again. That is success, not a collision.
+      if (alreadyApplied) return { ok: true, result: result, deduped: true };
       if (r.unchanged) return { ok: false, err: "The purse changed while you were previewing — try again." };
       if (!r.ok || !result) return r;
       var verb = n === 1 ? " gets " : " get ";
