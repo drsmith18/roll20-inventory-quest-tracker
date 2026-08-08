@@ -1,33 +1,30 @@
-// SPIKE S1 — Step 1 of 6 — run in the DM window's console.
-// Creates a handout named "SPIKE-S1", shared with the player account with
-// view AND edit rights, and writes a secret into its gmnotes for the S1b test.
-// CHANGES DATA: adds one handout to this game. Delete it from the journal when done.
+// SPIKE S1 rerun — Step 1 of 6 — DM window.
+// Creates ONE handout "SPIKE-S1-R2", shared with the player (view + edit),
+// with a secret in gmnotes for the S1b test. Refuses to run if one already
+// exists. CHANGES DATA: adds one handout.
 (function () {
+  if (Campaign.handouts.models.some(function (x) { return x.get("name") === "SPIKE-S1-R2"; })) {
+    console.log("FAIL(setup): SPIKE-S1-R2 already exists — run Step 0 first.");
+    return;
+  }
   var me = window.d20_player_id;
   var others = Campaign.players.models.filter(function (p) { return p.id !== me; });
   if (others.length !== 1) {
-    console.log("FAIL(setup): expected exactly 1 other player, found " + others.length + ": " +
-      others.map(function (p) { return p.get("displayname"); }).join(", "));
+    console.log("FAIL(setup): expected exactly 1 other player, found " + others.length);
     return;
   }
   var pid = others[0].id;
-  console.log("Sharing with player: " + others[0].get("displayname") + " (id " + pid + ")");
-  var h;
-  try {
-    h = Campaign.handouts.create({
-      name: "SPIKE-S1",
-      inplayerjournals: pid,   // player can SEE it
-      controlledby: pid,       // player can EDIT it
-      archived: false
-    });
-  } catch (e) { console.log("FAIL(setup): create threw: " + e.message); return; }
-  // notes/gmnotes are stored as "blobs"; give the model a moment, then write both.
+  var h = Campaign.handouts.create({
+    name: "SPIKE-S1-R2",
+    inplayerjournals: pid,
+    controlledby: pid,
+    archived: false
+  });
   setTimeout(function () {
     try {
-      if (h.updateBlobs) h.updateBlobs({ notes: "GM-INITIAL", gmnotes: "GM-SECRET-XYZZY" });
-      else h.save({ notes: "GM-INITIAL", gmnotes: "GM-SECRET-XYZZY" });
-      console.log("PASS(setup): handout created, id=" + h.id +
-        " | blob writer used: " + (h.updateBlobs ? "updateBlobs" : "save"));
+      h.updateBlobs({ notes: "GM-INITIAL-R2", gmnotes: "GM-SECRET-PLUGH" });
+      console.log("PASS(setup): created SPIKE-S1-R2, id=" + h.id +
+        ", shared with " + others[0].get("displayname"));
       console.log("Now run Step 2 in this same DM window.");
     } catch (e) { console.log("FAIL(setup): blob write threw: " + e.message); }
   }, 1500);
