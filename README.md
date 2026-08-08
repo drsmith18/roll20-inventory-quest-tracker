@@ -27,9 +27,12 @@ author's own table.** Not yet on the Chrome Web Store; it loads "unpacked"
   purse, shares recorded against characters until taken
 - 🐞 one-click bug reporting (pre-filled GitHub issue) and ☕ [Ko-fi](https://ko-fi.com/drsmith080)
 - Search across all bags, per-bag sorting, and bag renaming
+- Obscured items: the DM can disguise an item so players see only a written
+  description; true stats live in DM-only storage and are revealed in one
+  click (shift-drop from the compendium to obscure on arrival)
 
-Not yet built: sending items to character sheets, obscured/unidentified
-items, sub-bags, and the quest tracker. That's the current order of work.
+Not yet built: sending items to character sheets, sub-bags, and the quest
+tracker. That's the current order of work.
 
 ## Installing (no developer tools needed)
 

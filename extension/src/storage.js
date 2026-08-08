@@ -268,7 +268,12 @@
             return { id: id, doc: doc, hidden: hiddenIds.indexOf(id) !== -1 };
           });
         })).then(function (bags) {
-          return { index: index, bags: bags.filter(Boolean), readOnly: st.readOnly };
+          // Obscured items' true fields (INV-16): only ever non-empty for the
+          // GM client, because gmIndex above is only non-null when THIS
+          // client could actually read the GM-only handout's body — Roll20
+          // withholds it from players server-side (S1). No fallback that
+          // could substitute real data in for a player belongs here.
+          return { index: index, bags: bags.filter(Boolean), readOnly: st.readOnly, obscured: (gmIndex && gmIndex.obscured) || {} };
         });
       });
   };
@@ -513,6 +518,164 @@
           return mutateBag(fromId, function (doc) { doc.items.push(moved); }).then(function () { return r2; });
         }
         return r2;
+      });
+    });
+  };
+
+  // ---- obscured items (INV-16/16a/16b) ---------------------------------------
+  // THE HARD RULE this section exists to enforce (spike S1b, PRD C6.1): a bag
+  // players can see is a handout whose ENTIRE body — including gmnotes — is
+  // delivered to every player's browser. An item's true name/stats must
+  // therefore NEVER be written into a bag record, not even transiently. The
+  // only safe home for that data is the GM index handout's `obscured` map,
+  // whose body Roll20's server withholds from players entirely (verified S1).
+
+  // Shared by obscureItem (an item already in a bag) and ui.js's shift-drop
+  // flow (INV-16a, a brand-new item that must obscure on arrival): writes one
+  // item's true fields into the GM-only index, keyed by item id. Exposed on
+  // PT.store because the drop flow needs to land this write BEFORE any trace
+  // of the item — obscured or not — reaches the player-visible bag.
+  function stashObscuredTruth(env, itemId, truth) {
+    if (!env.isGM) return Promise.resolve({ ok: false, err: "DM only" });
+    if (!st.gmIndexH) return Promise.resolve({ ok: false, err: "GM index not available" });
+    return writeMerged(st.gmIndexH, function (gmDoc) {
+      gmDoc = gmDoc && gmDoc.partyToolsGmIndex ? gmDoc : { partyToolsGmIndex: SCHEMA, hiddenBags: [], obscured: {} };
+      gmDoc.obscured = gmDoc.obscured || {};
+      gmDoc.obscured[itemId] = truth;
+      return gmDoc;
+    });
+  }
+  PT.store.stashObscuredTruth = stashObscuredTruth;
+
+  // INV-16a support: pushes an ALREADY-obscured item straight into a bag —
+  // used only after stashObscuredTruth has confirmed the true data is safely
+  // in the GM index. Deliberately does not stack with an existing item the
+  // way addItem does: two different true items can easily end up with the
+  // same DM-written surface text ("a dull grey rod, warm to the touch" ×2),
+  // and stacking would merge them under one id, silently orphaning one of
+  // the two GM-index truth records this item is supposed to map to 1:1.
+  PT.store.addObscuredItem = function (env, bagId, bagName, itemId, qty, surfaceDesc) {
+    if (!env.isGM) return Promise.resolve({ ok: false, err: "DM only" });
+    var item = {
+      id: itemId, qty: Number(qty) || 1, name: surfaceDesc, obscured: true,
+      addedBy: env.playerName, addedAt: Date.now()
+    };
+    return mutateBag(bagId, function (doc) { doc.items.push(item); }).then(function (r) {
+      // Log message deliberately omits the true name (it's player-visible) —
+      // see obscureItem below for the same rule.
+      if (r.ok) PT.store.appendLog(env, "obscured an item in “" + bagName + "” — players now see “" + surfaceDesc + "”");
+      return r;
+    });
+  };
+
+  // INV-16: obscures an item already sitting in a bag. DM only. Write order
+  // matters and is NOT interchangeable:
+  //   (a) true fields -> GM index (stashObscuredTruth), confirmed by
+  //       writeMerged's verify-and-retry
+  //   (b) ONLY if (a) succeeded: visible fields -> bag (delete, don't blank,
+  //       so no residual field can be inspected client-side)
+  // If (a) fails, nothing about the visible item has changed — safe to just
+  // report the error and let the DM retry. If (a) succeeds but (b) fails, the
+  // true data is now safely stored but the bag STILL shows full stats to
+  // players: that must never be reported as success, and never retried by
+  // silently re-running (a) (writeMerged's own retries already cover
+  // transient loss; a second call from the UI simply tries the whole
+  // operation again, and (a) is naturally idempotent — it overwrites the
+  // same key with the same truth).
+  PT.store.obscureItem = function (env, bagId, bagName, itemId, surfaceDesc) {
+    if (!env.isGM) return Promise.resolve({ ok: false, err: "DM only" });
+    surfaceDesc = (surfaceDesc || "").trim();
+    if (!surfaceDesc) return Promise.resolve({ ok: false, err: "a surface description is required" });
+    if (!st.gmIndexH) return Promise.resolve({ ok: false, err: "GM index not available" });
+    var h = st.bagHs[bagId] || handoutById(bagId);
+    if (!h) return Promise.resolve({ ok: false, err: "bag not found" });
+    return PT.store.readDoc(h).then(function (doc) {
+      if (!doc || !doc.partyToolsBag) return { ok: false, err: "bag not found" };
+      var it = (doc.items || []).filter(function (i) { return i.id === itemId; })[0];
+      if (!it) return { ok: false, err: "item not found" };
+      if (it.obscured) return { ok: false, err: "item is already obscured" };
+      var truth = {
+        name: it.name, description: it.description, cost: it.cost,
+        weight: it.weight, rarity: it.rarity, itemType: it.itemType,
+        pagename: it.pagename, expansionId: it.expansionId, datarecords: it.datarecords,
+        hiddenAt: Date.now(), hiddenBy: env.playerName
+      };
+      // (a) FIRST — see the ordering note above.
+      return stashObscuredTruth(env, itemId, truth).then(function (gmRes) {
+        if (!gmRes.ok) {
+          return { ok: false, err: "couldn't save the true item data — the item is NOT obscured yet, nothing changed. Try again." };
+        }
+        // (b) ONLY NOW touch the player-visible bag.
+        return mutateBag(bagId, function (doc2) {
+          var it2 = (doc2.items || []).filter(function (i) { return i.id === itemId; })[0];
+          if (!it2) return false;
+          it2.name = surfaceDesc;
+          // Deleted, not blanked: an empty string/0 is still a value a
+          // console-savvy player could read as "confirmed no rarity" etc.
+          // Deleting removes the field from the record entirely. expansionId
+          // isn't explicitly a "stat", but it's compendium-linkage metadata
+          // already captured in the GM-index truth record, so it goes too —
+          // nothing that could help reconstruct the item belongs here.
+          delete it2.description; delete it2.cost; delete it2.weight;
+          delete it2.rarity; delete it2.itemType; delete it2.pagename;
+          delete it2.expansionId; delete it2.datarecords;
+          it2.obscured = true;
+        }).then(function (r) {
+          if (!r.ok) {
+            return { ok: false, err: "true item data was saved, but the bag update failed — the item is NOT yet obscured. Try again." };
+          }
+          // Player-visible log: the surface text is fine to name, the true
+          // name never is.
+          return PT.store.appendLog(env, "obscured an item in “" + bagName + "” — players now see “" + surfaceDesc + "”")
+            .then(function () { return { ok: true }; });
+        });
+      });
+    });
+  };
+
+  // INV-16b: reveals an item's true nature in one DM action. Write order:
+  //   (a) FIRST restore every stored field onto the visible item
+  //   (b) ONLY THEN remove the GM index's copy
+  // If restore (a) fails, the GM-index copy is untouched — the DM can just
+  // try again, the true data was never at risk. Removing the copy first
+  // would risk the opposite: a failed restore leaving the item stuck showing
+  // the surface text with the only copy of its true data gone.
+  PT.store.revealItem = function (env, bagId, bagName, itemId) {
+    if (!env.isGM) return Promise.resolve({ ok: false, err: "DM only" });
+    if (!st.gmIndexH) return Promise.resolve({ ok: false, err: "GM index not available" });
+    return PT.store.readDoc(st.gmIndexH).then(function (gmDoc) {
+      var truth = gmDoc && gmDoc.obscured && gmDoc.obscured[itemId];
+      if (!truth) return { ok: false, err: "no hidden data found for this item — it may already be revealed" };
+      // (a) FIRST.
+      return mutateBag(bagId, function (doc) {
+        var it = (doc.items || []).filter(function (i) { return i.id === itemId; })[0];
+        if (!it) return false;
+        it.name = truth.name;
+        it.description = truth.description;
+        it.cost = truth.cost;
+        it.weight = truth.weight;
+        it.rarity = truth.rarity;
+        it.itemType = truth.itemType;
+        it.pagename = truth.pagename;
+        it.expansionId = truth.expansionId;
+        it.datarecords = truth.datarecords;
+        delete it.obscured;
+      }).then(function (r) {
+        if (!r.ok) {
+          return { ok: false, err: "couldn't restore the item — it's still obscured. The true data is still safely stored; try again." };
+        }
+        // (b) ONLY NOW clean up the GM index. This log message is allowed to
+        // name the item — revealing is the whole point (INV-16b).
+        return writeMerged(st.gmIndexH, function (gmDoc2) {
+          if (!gmDoc2 || !gmDoc2.partyToolsGmIndex) return null;
+          if (!gmDoc2.obscured || !gmDoc2.obscured[itemId]) return null;
+          delete gmDoc2.obscured[itemId];
+          return gmDoc2;
+        }).then(function (cleanupRes) {
+          if (!cleanupRes.ok) PT.log("revealItem: GM-index cleanup for " + itemId + " did not confirm (harmless leftover, not player-visible): " + cleanupRes.err);
+          return PT.store.appendLog(env, "revealed the true nature of “" + truth.name + "” in “" + bagName + "”")
+            .then(function () { return { ok: true, name: truth.name }; });
+        });
       });
     });
   };

@@ -15,6 +15,16 @@
   // INV-26 per-bag sort choice, keyed by bag id. View-only and intentionally
   // NOT persisted — lost on reload is fine, it never touches storage.
   var bagSort = {};
+  // INV-16a (shift-drop obscures on arrival). Compendium drops arrive only
+  // through jQuery UI (spike S3) — drops.js's droppable "drop" callback gets
+  // the real mouseup event but, per this feature's file boundaries, drops.js
+  // itself can't be touched to forward it. Instead a single CAPTURE-phase
+  // mouseup listener on `document`, registered once in ui.mount below,
+  // records shiftKey before any bubble-phase handler (including jQuery UI's
+  // own, which is what eventually calls our onDrop) gets a chance to run —
+  // so by the time onDrop fires this always reflects the shift state of that
+  // exact drop's mouseup, not some earlier or later one.
+  var lastDropShiftKey = false;
 
   // Palette follows Roll20's own dark UI: charcoal surfaces, thin grey
   // borders, off-white text, restrained crimson accent. Nothing purple.
@@ -46,6 +56,12 @@
     ".pt-items{padding:4px 10px 8px}",
     ".pt-item{display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #2b2d33}",
     ".pt-item:last-child{border-bottom:none}",
+    // UI-7: an obscured item's row must be unmistakable to the DM (and, since
+    // it.obscured is ordinary item data every viewer already has, this reads
+    // fine as a "this is a mystery item" cue for players too — the true name
+    // tag right below is the part that's DM-only).
+    ".pt-item.pt-obscured{border-left:3px solid #b3455a;background:rgba(179,69,90,.10);padding-left:6px}",
+    ".pt-truename{color:#b3455a;font-size:11px;margin-left:6px}",
     ".pt-itemname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default}",
     ".pt-itemmeta{color:var(--pt-dim);font-size:11.5px;margin-left:6px}",
     ".pt-qty{color:var(--pt-dim);min-width:32px;text-align:right}",
@@ -292,7 +308,11 @@
       c.appendChild(PT.el("input", { type: "number", value: "1", "data-f": "qty" }));
       c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Description (optional):" })]));
       c.appendChild(PT.el("input", { type: "text", "data-f": "desc" }));
-      c.appendChild(PT.el("div", { class: "pt-note", text: "Tip: you can also drag items from the Roll20 compendium straight onto a bag." }));
+      c.appendChild(PT.el("div", {
+        class: "pt-note",
+        text: "Tip: you can also drag items from the Roll20 compendium straight onto a bag." +
+          (env.isGM ? " Hold Shift while dropping to obscure it immediately — players never see its real stats." : "")
+      }));
     }, function (c) {
       var name = c.querySelector("[data-f=name]").value.trim();
       if (!name) return false;
@@ -340,6 +360,57 @@
         ui.refresh();
       });
     });
+  }
+
+  // ---- obscured items (INV-16/16a/16b) ---------------------------------------
+  // Obscures an item already in a bag. The surface text is the ONLY thing
+  // this modal collects — no stats, nothing that touches the true record.
+  function obscureItemModal(bag, item) {
+    modal("Obscure “" + item.name + "”", function (c) {
+      c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Surface description (what players see):" })]));
+      c.appendChild(PT.el("input", { type: "text", "data-f": "surface", placeholder: "a dull grey rod, warm to the touch" }));
+      c.appendChild(PT.el("div", { class: "pt-note", text: "Players will see only this as the item's name — no stats, value, or true name. You can reveal it later in one click." }));
+    }, function (c) {
+      var surface = c.querySelector("[data-f=surface]").value.trim();
+      if (!surface) return false; // empty input rejected — stay open
+      PT.store.obscureItem(env, bag.id, bag.doc.name, item.id, surface).then(function (r) {
+        if (!r.ok) ui.toast("Obscure failed: " + r.err);
+        ui.refresh();
+      });
+    });
+  }
+
+  // INV-16a: obscures a compendium item at the moment of drop, so its full
+  // stats never render into the bag at all — not even for one refresh cycle.
+  // Sequence (must stay in this order): item is already resolved (caller) ->
+  // prompt for surface text (this modal) -> true data written to the GM
+  // index -> ONLY THEN is a surface-only item written to the bag.
+  function obscureOnDropModal(bag, resolvedItem) {
+    modal("Shift-drop: obscure on arrival", function (c) {
+      c.appendChild(PT.el("div", { class: "pt-note", text: "“" + resolvedItem.name + "” will be added already obscured — players will never see its real stats." }));
+      c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Surface description (what players see):" })]));
+      c.appendChild(PT.el("input", { type: "text", "data-f": "surface", placeholder: "a dull grey rod, warm to the touch" }));
+    }, function (c) {
+      var surface = c.querySelector("[data-f=surface]").value.trim();
+      if (!surface) return false; // empty input rejected — stay open
+      var itemId = PT.uid();
+      var truth = {
+        name: resolvedItem.name, description: resolvedItem.description, cost: resolvedItem.cost,
+        weight: resolvedItem.weight, rarity: resolvedItem.rarity, itemType: resolvedItem.itemType,
+        pagename: resolvedItem.pagename, expansionId: resolvedItem.expansionId, datarecords: resolvedItem.datarecords,
+        hiddenAt: Date.now(), hiddenBy: env.playerName
+      };
+      // Truth to the GM index FIRST; the bag write only happens after that
+      // is confirmed — see storage.js's obscureItem for why this order is
+      // not interchangeable.
+      PT.store.stashObscuredTruth(env, itemId, truth).then(function (r) {
+        if (!r.ok) { ui.toast("Couldn't save the true item data — nothing was added. Try the drop again."); return; }
+        PT.store.addObscuredItem(env, bag.id, bag.doc.name, itemId, resolvedItem.qty, surface).then(function (r2) {
+          if (!r2.ok) ui.toast("True data was saved, but adding the obscured item to the bag failed: " + r2.err);
+          ui.refresh();
+        });
+      });
+    }, { okText: "Obscure & add" });
   }
 
   // ---- search (INV-25) & sort (INV-26) helpers -------------------------------
@@ -479,31 +550,79 @@
       var metaBits = [];
       if (it.cost) metaBits.push(it.cost);
       if (it.weight != null && it.weight !== "") metaBits.push(it.weight + " lb");
+      // Note titleBits/metaBits above are built only from fields that still
+      // exist on `it` — obscureItem deletes description/cost/weight/rarity/
+      // itemType from an obscured item's record entirely (not just blanks
+      // them), so this tooltip naturally carries nothing true-identity-ish
+      // for players once an item is obscured. Nothing obscure-specific is
+      // added to it here.
       var nameSpan = PT.el("span", { class: "pt-itemname", title: titleBits.join(" · ") }, [
         PT.el("span", { text: it.name + (it.resolved === false && it.note ? " *" : "") })
       ]);
       if (metaBits.length) nameSpan.appendChild(PT.el("span", { class: "pt-itemmeta", text: metaBits.join(" · ") }));
-      items.appendChild(PT.el("div", { class: "pt-item" }, [
-        nameSpan,
-        PT.el("span", { class: "pt-qty", text: "×" + (it.qty || 1) }),
+      // UI-7 / INV-16: the true name tag is built ONLY from the snapshot's
+      // GM-only `obscured` map (never from anything on `it` itself, which
+      // never carries it), and only ever rendered for the DM. For a player
+      // client snapshot.obscured is always {} (storage.js's snapshot()) —
+      // there is no code path here that could put a true name in front of a
+      // player, in a tooltip/title or otherwise.
+      if (env.isGM && it.obscured) {
+        var truth = (snapshot.obscured || {})[it.id];
+        if (truth) nameSpan.appendChild(PT.el("span", { class: "pt-truename", text: "[" + truth.name + "]" }));
+      }
+      var actionBtns = [
         PT.el("button", { class: "pt-iconbtn", text: "−", title: "One fewer", onclick: function () { PT.store.changeQty(env, bag.id, d.name, it.id, -1).then(ui.refresh); } }),
         PT.el("button", { class: "pt-iconbtn", text: "+", title: "One more", onclick: function () { PT.store.changeQty(env, bag.id, d.name, it.id, +1).then(ui.refresh); } }),
-        PT.el("button", { class: "pt-iconbtn", text: "⇄", title: "Move to another bag", onclick: function () { moveItemModal(bag, it); } }),
-        PT.el("button", {
-          class: "pt-iconbtn", text: "×", title: "Delete item",
-          onclick: function () {
-            if (!confirm("Remove “" + it.name + "” from “" + d.name + "”? The DM can restore it via the activity log.")) return;
-            PT.store.deleteItem(env, bag.id, d.name, it.id).then(ui.refresh);
-          }
-        })
-      ]));
+        PT.el("button", { class: "pt-iconbtn", text: "⇄", title: "Move to another bag", onclick: function () { moveItemModal(bag, it); } })
+      ];
+      if (env.isGM) {
+        if (it.obscured) {
+          actionBtns.push(PT.el("button", {
+            class: "pt-iconbtn", text: "👁", title: "Reveal this item's true nature to the party",
+            onclick: function () {
+              var truth = (snapshot.obscured || {})[it.id];
+              var trueName = truth ? truth.name : it.name;
+              if (!confirm("Reveal “" + trueName + "” to the party? Players will see its real name and stats.")) return;
+              PT.store.revealItem(env, bag.id, d.name, it.id).then(function (r) {
+                if (!r.ok) ui.toast("Reveal failed: " + r.err);
+                ui.refresh();
+              });
+            }
+          }));
+        } else {
+          actionBtns.push(PT.el("button", {
+            class: "pt-iconbtn", text: "👁", title: "Obscure this item from players",
+            onclick: function () { obscureItemModal(bag, it); }
+          }));
+        }
+      }
+      actionBtns.push(PT.el("button", {
+        class: "pt-iconbtn", text: "×", title: "Delete item",
+        onclick: function () {
+          if (!confirm("Remove “" + it.name + "” from “" + d.name + "”? The DM can restore it via the activity log.")) return;
+          PT.store.deleteItem(env, bag.id, d.name, it.id).then(ui.refresh);
+        }
+      }));
+      items.appendChild(PT.el("div", { class: "pt-item" + (it.obscured ? " pt-obscured" : "") },
+        [nameSpan, PT.el("span", { class: "pt-qty", text: "×" + (it.qty || 1) })].concat(actionBtns)));
     });
     var descDiv = d.desc ? PT.el("div", { class: "pt-bagdesc", text: d.desc }) : null;
     var card = PT.el("div", { class: "pt-bag" + (bag.hidden ? " pt-hidden-bag" : "") }, [head, descDiv, purse].concat(assignRows, [items]));
     // every bag is its own drop target (UI-5: it's obvious which bag receives)
     PT.drops.arm(card, function (payload) {
+      // INV-16a: capture the shift state of THIS drop's mouseup right away —
+      // see lastDropShiftKey's declaration for why it's read this way rather
+      // than off the jQuery drop event directly.
+      var shiftDrop = env.isGM && lastDropShiftKey;
       ui.toast("Fetching item details…", 1500);
       PT.drops.resolve(payload).then(function (item) {
+        if (shiftDrop) {
+          // Prompt for the surface text BEFORE anything is written anywhere;
+          // the full-stat `item` here never gets past this point — see
+          // obscureOnDropModal for the write sequence.
+          obscureOnDropModal(bag, item);
+          return;
+        }
         PT.store.addItem(env, bag.id, d.name, item).then(function (r) {
           if (!r.ok) ui.toast("Drop failed to save: " + r.err);
           else if (!item.resolved) ui.toast("Added “" + item.name + "” by name only (" + item.note + ").");
@@ -737,6 +856,9 @@
   ui.mount = function (envInfo, state) {
     env = envInfo;
     document.head.appendChild(PT.el("style", { text: CSS }));
+    // See lastDropShiftKey's declaration above for why this is capture-phase
+    // and lives here rather than in drops.js.
+    document.addEventListener("mouseup", function (e) { lastDropShiftKey = !!e.shiftKey; }, true);
 
     // Icon only. Emoji rotated by the vertical writing-mode read as a red
     // arrow; vertical text was legible but visually noisy. An inline SVG
