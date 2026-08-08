@@ -14,7 +14,7 @@ both 2014 and 2024 rules) on the Jumpgate backend.
 |---|---|---|
 | S1 | Player write to shared handout (BLOCKING) | **PASS** — certified 8 Aug 2026 |
 | S1b | gmnotes withheld on shared handouts? | **NO — leak confirmed.** gmnotes is unsafe on any player-visible handout |
-| S2 | Write items/coin to character sheets (BLOCKING) | In progress — background load PASSED (~1s, no sheet open); write test next |
+| S2 | Write items/coin to character sheets (BLOCKING) | **PASS on the 2024 sheet** — item + coin written, rendered by the sheet UI, cleanly restored. 2014 sheet deferred (needs own game) |
 | S3 | Compendium drop resolution | Not started |
 | S4 | Handout size limits | **ANSWERED** — no ceiling up to 8MB (verified with 12s persistence wait); no practical constraint |
 | S5 | Concurrent writes | **ANSWERED** — silent last-write-wins; loser discarded with no signal |
@@ -265,7 +265,31 @@ read the sheet's own rates rather than hardcoding them.
 Item fields map cleanly onto INV-10: name, description, weight, cost,
 rarity, quantity all exist natively.
 
-**Next:** the write test (`spikes/s2/write-test.js`, undo in `restore.js`) —
-back up the store to a handout, add one plain item, set gold, bump
-`updateId`, then confirm in Roll20's own sheet UI. The UI check is the real
-pass condition: data the sheet does not render is a failed transfer.
+**Write test: PASS (8 Aug 2026).** `spikes/s2/write-test.js` backed the
+store up to a handout (verified before changing anything), then:
+
+- added one plain Item integrant ("Spike Test Rope": name, description,
+  quantity, weight, cost — no attack/damage sub-graph), registered in its
+  parent's `childIDs`;
+- set the gold currency integrant's `value` to 7;
+- wrote the store back with `storeAttrib.save({current})` and bumped
+  `updateId` to a fresh token.
+
+**Confirmed in Roll20's own sheet UI:** the rope appeared in the inventory,
+gold displayed 7, and the sheet loaded normally — no errors, no complaint.
+`restore.js` then put the original store back from the backup handout, and
+the sheet again loaded cleanly with the test data gone. Full round trip:
+write → render → restore → render.
+
+**S2 verdict: PASS for the 2024 sheet.** INV-21/INV-23/INV-20g are
+implementable on `dnd2024byroll20`: background-load the attribs (~1s), edit
+the store object, bump `updateId`, verify by re-read. Two residuals, neither
+blocking:
+
+1. **The 2014 sheet is untested** — it needs its own test game (sheet choice
+   is per-campaign) and is a different architecture entirely. Until tested,
+   INV-24's assignment fallback is the honest promise for 2014-sheet games.
+2. **The write was made by the GM client.** A player claiming an item writes
+   to a character they control; Roll20's permission model should allow the
+   same path (`controlledby` on the character), but it has not been
+   exercised. Small follow-up test with the player account when convenient.
