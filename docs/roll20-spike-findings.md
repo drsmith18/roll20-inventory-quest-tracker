@@ -17,7 +17,7 @@ both 2014 and 2024 rules) on the Jumpgate backend.
 | S2 | Write items/coin to character sheets (BLOCKING) | Not started |
 | S3 | Compendium drop resolution | Not started |
 | S4 | Handout size limits | Not started |
-| S5 | Concurrent writes | Snippets issued |
+| S5 | Concurrent writes | **Data loss observed** — run 1 lost all 6 GM writes silently; S5b tiebreaker in progress |
 | S6 | Legacy backend | Not started (awaiting identification of the Legacy campaign) |
 
 ---
@@ -76,3 +76,36 @@ run-specific markers. Snippets: `spikes/s1/`.
 **Verdict:** the blocking assumption holds. Shared handout storage is viable
 for the party inventory, with write-verification and a GM-only side store for
 hidden per-item data.
+
+---
+
+## S5 — Concurrent writes (run 1, 8 Aug 2026) — provisional
+
+**How tested:** both clients appended one line to the same handout body at 6
+synchronized instants, 10 s apart (read body, append own line, write back —
+the pattern a naive shared activity log would use). Start time was planted in
+the handout body by the GM client and read by the player client, so both
+windows fired within milliseconds on one machine's clock.
+
+**Observed:** the final body — identical from both clients — contained the
+base marker and **all 6 player lines, zero GM lines**. No errors, no
+permission_denied, no notification of any kind on either side. One side's
+writes were entirely and silently lost.
+
+**Two candidate explanations, distinguished by rerun S5b (staggered rounds
+plus per-write self-checks):**
+
+1. **Silent last-write-wins:** both writes landed ~simultaneously; the
+   player's consistently arrived second and overwrote the GM's line each
+   round.
+2. **GM writes never dispatched:** a GM-window problem (background-window
+   timer throttling or a mid-round exception) meant the GM never actually
+   wrote; the test would then not have measured collisions at all.
+
+**Already safe to conclude either way:** blob writes carry no conflict
+detection and no failure signal. Whatever S5b shows, the product cannot use
+naive read-modify-write on any handout written by more than one client at a
+time; the activity log (every client writes one object) is the most exposed
+(PRD C6.3, SYS-7).
+
+**Verdict: pending S5b.**
