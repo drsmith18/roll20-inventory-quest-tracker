@@ -14,9 +14,9 @@ both 2014 and 2024 rules) on the Jumpgate backend.
 |---|---|---|
 | S1 | Player write to shared handout (BLOCKING) | **PASS** — certified 8 Aug 2026 |
 | S1b | gmnotes withheld on shared handouts? | **NO — leak confirmed.** gmnotes is unsafe on any player-visible handout |
-| S2 | Write items/coin to character sheets (BLOCKING) | Not started |
+| S2 | Write items/coin to character sheets (BLOCKING) | In progress — 2024 sheet is Beacon-architecture (single JSON store), not classic attribs |
 | S3 | Compendium drop resolution | Not started |
-| S4 | Handout size limits | Not started |
+| S4 | Handout size limits | Provisional — no ceiling to 8MB, but probe verified local cache only; S4b persistence check pending |
 | S5 | Concurrent writes | **ANSWERED** — silent last-write-wins; loser discarded with no signal |
 | S6 | Legacy backend | Not started (awaiting identification of the Legacy campaign) |
 
@@ -123,3 +123,56 @@ write is discarded in its entirety.
 **Verdict: answered. No redesign of the storage decision required, but the
 log layout changes to per-writer shards and all writes go through a
 verify-and-retry layer.**
+
+---
+
+## S4 — Handout body size limits (run 1, 8 Aug 2026) — provisional
+
+Progressive writes of 10 KB → 8,000,000 characters to a GM-only handout all
+"verified" instantly, with zero Firebase warnings or errors, and the handout
+deleted cleanly afterwards.
+
+**Caveat, honestly held:** the probe's verification read returned in 0–1 ms,
+meaning it read the browser's local cache — it proves no client-side ceiling
+and that no rejection arrived during the run, but it cannot prove the server
+accepted the 8 MB write (S1 showed rejections surface as a delayed local
+revert, seconds later). S4b re-checks the top size with a 12-second wait
+before verification.
+
+**Provisional reading:** no practical ceiling for this product. Even if the
+true limit were 1 MB, at ~1–2 KB per stored item and ~150 bytes per log
+entry, a single handout holds hundreds of items or thousands of log entries;
+at 8 MB the question disappears entirely. Final verdict after S4b.
+
+---
+
+## S2 — Character sheet writes (recon, 8 Aug 2026) — in progress
+
+**Discovery: the D&D 2024 sheet (`dnd2024byroll20`) is not a classic
+attribute sheet.** A character with one hand-added inventory item and coin
+has just **five** attributes: `store`, `updateId`, `builder`, `appState`,
+`sheetVersion`. `store` is a single large JSON document holding the whole
+character — Roll20's newer Beacon-style sheet architecture. There are no
+`repeating_inventory_*` rows.
+
+**Consequences**
+
+1. Writing an item or coin to a 2024-sheet character means editing the
+   `store` JSON (and presumably bumping `updateId` so other clients notice),
+   not creating attribute rows. The original findings doc §7 assumed the
+   classic model; that assumption was wrong for this sheet.
+2. The 2014 sheet, when tested (needs its own game — sheet choice is
+   per-campaign), will be the classic row-based architecture. The two
+   integrations in PRD C3 share almost nothing.
+3. A never-opened character has no `store` at all (`Spike Cold`: 0 attribs) —
+   the sheet initialises its data on first open. For the product this is the
+   rare case (players open their characters' sheets constantly); the common
+   case is data that exists server-side but is not loaded in this client,
+   which is what the background-load test targets.
+4. The character model also exposes `updateBlobs`/`_getLatestBlob` (bio and
+   gmnotes blobs), and each `attribs` collection carries a `backboneFirebase`
+   slot and a `url` — the presumed lazy-load wiring.
+
+**Next:** background-load test on a fresh client (attach `BackboneFirebase`
+to the attribs collection without opening the sheet), then map the store
+JSON's inventory/currency structure, then a careful reversible write.
