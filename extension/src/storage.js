@@ -925,9 +925,16 @@
   };
 
   // Removes one assignment record once a player confirms they've taken the
-  // coin off the note (mirrors the item fallback in INV-24). Not a coin
-  // mutation — the coin already left the purse when the split was confirmed.
-  PT.store.transferAssignment = function (env, bagId, bagName, assignmentId) {
+  // coin (or item, INV-21/24's fallback) off the note. Not a coin/item
+  // mutation itself — whatever it represents already left the bag when the
+  // assignment was created (splitCoins, or ui.js's claim-to-unsupported-sheet
+  // path). Handles both assignment shapes: a coin-split entry has `.cp`/
+  // `.label`; an item-claim entry has `.item`/`.qty` instead. customMsg lets
+  // a caller (ui.js's "push coins to sheet", INV-20g) log something other
+  // than the generic "marked ... as transferred" — e.g. naming the sheet the
+  // coins actually landed on — while still going through this one removal
+  // code path.
+  PT.store.transferAssignment = function (env, bagId, bagName, assignmentId, customMsg) {
     var removed = null;
     return mutateBag(bagId, function (doc) {
       var a = (doc.assignments || []).filter(function (x) { return x.id === assignmentId; })[0];
@@ -936,8 +943,9 @@
       doc.assignments = doc.assignments.filter(function (x) { return x.id !== assignmentId; });
     }).then(function (r) {
       if (r.ok && removed) {
-        return PT.store.appendLog(env, env.playerName + " marked " + removed.to + "’s " + removed.label + " as transferred")
-          .then(function () { return r; });
+        var label = removed.item !== undefined ? (removed.qty + "× " + removed.item) : removed.label;
+        var msg = customMsg || (env.playerName + " marked " + removed.to + "’s " + label + " as transferred");
+        return PT.store.appendLog(env, msg).then(function () { return r; });
       }
       return r;
     });

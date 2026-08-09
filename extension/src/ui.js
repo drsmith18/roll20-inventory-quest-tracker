@@ -471,6 +471,149 @@
     }, { okText: "Obscure & add" });
   }
 
+  // ---- claim an item to a character sheet (INV-21/23a/23b/24) ---------------
+  // Writes to the character sheet FIRST and only removes the claimed
+  // quantity from the bag if that write reported ok:true. Never the other
+  // way round: a bag removal followed by a failed sheet write would destroy
+  // the item (it would be gone from the bag, and never actually landed on
+  // the sheet). On a sheet-write failure this changes NOTHING in the bag.
+  //
+  // Obscured items (INV-16) store only their surface name in `item.name` —
+  // the true stats live in the GM-only index and are never read here. That
+  // means claiming an obscured item necessarily puts just the surface text
+  // on the sheet, with no stats. That's correct behaviour (INV-16's whole
+  // point is that even the item's owner shouldn't see the true data until
+  // the DM reveals it), not a bug — this function makes no attempt to look
+  // the true data up, and does not refuse the claim.
+  function doClaimItem(bag, item, character, qty) {
+    var charName = character.get("name");
+    var whole = qty >= (Number(item.qty) || 1);
+
+    function removeFromBag(extraDoc) {
+      return PT.store.mutateBag(bag.id, function (doc) {
+        var it = (doc.items || []).filter(function (i) { return i.id === item.id; })[0];
+        if (!it) return false;
+        if (extraDoc) extraDoc(doc);
+        if (whole) doc.items = doc.items.filter(function (i) { return i.id !== item.id; });
+        else it.qty = (Number(it.qty) || 1) - qty;
+      });
+    }
+
+    if (PT.sheets.isSupported(character)) {
+      return PT.sheets.addItem(character, {
+        name: item.name, qty: qty, description: item.description,
+        weight: item.weight, cost: item.cost, rarity: item.rarity
+      }).then(function (sheetRes) {
+        // Sheet write failed: STOP. Nothing about the bag changes.
+        if (!sheetRes.ok) return { ok: false, err: sheetRes.err };
+        // Sheet write succeeded: ONE mutateBag call removes the claimed
+        // quantity (whole stack, or reduces qty).
+        return removeFromBag().then(function (r) {
+          if (r.ok) {
+            PT.store.appendLog(env, env.playerName + " claimed " + qty + "× “" + item.name + "” to " + charName);
+          }
+          return r;
+        });
+      });
+    }
+
+    // INV-24: sheet not supported — do NOT write to any sheet. Record an
+    // assignment exactly like coin splitting does, AND remove the claimed
+    // quantity from the bag, in the SAME mutateBag call (mirrors INV-20h:
+    // it must leave the bag, or the party's inventory double-counts it).
+    return removeFromBag(function (doc) {
+      doc.assignments = doc.assignments || [];
+      doc.assignments.push({
+        id: PT.uid(), to: charName, item: item.name, qty: qty, t: Date.now(), by: env.playerName
+      });
+    }).then(function (r) {
+      if (r.ok) {
+        PT.store.appendLog(env, env.playerName + " claimed " + qty + "× “" + item.name + "” to " + charName + " — sheet not supported, recorded as assigned");
+      }
+      return r;
+    });
+  }
+
+  function claimItemModal(bag, item) {
+    // controlledBy already implements INV-23b (a player only gets characters
+    // they control) — this just calls it, never widens the result.
+    var chars = PT.sheets.controlledBy(env);
+    if (!chars.length) { ui.toast("You don't control any characters in this game."); return; }
+    var stack = Number(item.qty) || 1;
+    var single = chars.length === 1;
+
+    modal(single ? "Claim “" + item.name + "”" : "Claim “" + item.name + "” to…", function (c) {
+      if (single) {
+        var unsupported0 = !PT.sheets.isSupported(chars[0]);
+        c.appendChild(PT.el("div", {
+          class: "pt-note",
+          text: "To: " + chars[0].get("name") + (unsupported0 ? " — unsupported sheet, will be recorded as assigned instead" : "")
+        }));
+      } else {
+        // INV-23a: only asks which character when there IS a choice. Sorted
+        // exactly as controlledBy returned them; default the first.
+        chars.forEach(function (ch, i) {
+          var unsupported = !PT.sheets.isSupported(ch);
+          c.appendChild(PT.el("label", {}, [
+            PT.el("input", { type: "radio", name: "pt-claim-char", value: String(i), checked: i === 0 ? "checked" : undefined }),
+            PT.el("span", { text: ch.get("name") + (unsupported ? " — unsupported sheet, will be recorded as assigned instead" : "") })
+          ]));
+        });
+      }
+      if (stack > 1) {
+        c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Quantity (of " + stack + "):" })]));
+        c.appendChild(PT.el("input", { type: "number", value: "1", min: "1", max: String(stack), "data-f": "qty" }));
+      }
+    }, function (c) {
+      var character;
+      if (single) {
+        character = chars[0];
+      } else {
+        var sel = c.querySelector("input[name=pt-claim-char]:checked");
+        if (!sel) return false;
+        character = chars[parseInt(sel.value, 10)];
+      }
+      var qty = 1;
+      if (stack > 1) {
+        var qtyInput = c.querySelector("[data-f=qty]");
+        qty = qtyInput ? (parseInt(qtyInput.value, 10) || 1) : 1;
+        if (qty < 1) qty = 1;
+        if (qty > stack) qty = stack;
+      }
+      var unsupportedClaim = !PT.sheets.isSupported(character);
+      doClaimItem(bag, item, character, qty).then(function (r) {
+        if (!r.ok) { ui.toast("Claim failed: " + r.err); return; }
+        if (unsupportedClaim) {
+          ui.toast("“" + item.name + "” recorded as assigned to " + character.get("name") + " — move it onto the sheet by hand.");
+        }
+        ui.refresh();
+      });
+    }, { okText: "Claim" });
+  }
+
+  // ---- push a coin assignment to a character sheet (INV-20g) ----------------
+  function pushCoinAssignmentToSheet(bag, a) {
+    var chars = PT.sheets.controlledBy(env);
+    var character = chars.filter(function (c) { return c.get("name") === a.to; })[0];
+    if (!character) { ui.toast("No character you control is named " + a.to + "."); return; }
+    if (!PT.sheets.isSupported(character)) {
+      ui.toast(character.get("name") + "’s sheet isn’t supported — push these coins by hand instead.");
+      return;
+    }
+    var denoms = PT.copperToGpMax(a.cp);
+    PT.sheets.addCoins(character, { pp: 0, gp: denoms.gp, ep: 0, sp: denoms.sp, cp: denoms.cp }).then(function (r) {
+      if (!r.ok) { ui.toast("Push failed: " + r.err); return; }
+      // ONLY on ok:true: remove the assignment via the same code path the ✓
+      // button uses, with a log message naming the push instead of the
+      // generic "marked ... as transferred".
+      var msg = env.playerName + " pushed " + a.label + " to " + character.get("name") + "’s sheet";
+      PT.store.transferAssignment(env, bag.id, bag.doc.name, a.id, msg).then(function (r2) {
+        if (!r2.ok) ui.toast("Coins were added to the sheet, but the assignment note couldn't be cleared: " + r2.err);
+        ui.refresh();
+      });
+    });
+  }
+
   // ---- search (INV-25) & sort (INV-26) helpers -------------------------------
   function itemMatches(it, needleLower) {
     var n = (it.name || "").toLowerCase();
@@ -578,21 +721,38 @@
       onclick: function () { coinModal(bag); }
     });
     var assignRows = [];
+    // Two shapes share this array: a coin-split entry (INV-20g/h) has
+    // `.cp`/`.label`; an item claim to an unsupported sheet (INV-24) has
+    // `.item`/`.qty` instead. Both render here, both get the ✓ "mark
+    // transferred" button; only coin entries also get a "push to sheet"
+    // button (INV-20g) — there is nothing to push for an item, the player
+    // just moves it onto the sheet by hand.
     (d.assignments || []).forEach(function (a) {
-      var when = new Date(a.t);
-      var dateStr = (when.getMonth() + 1) + "/" + when.getDate();
-      assignRows.push(PT.el("div", { class: "pt-assign" }, [
-        PT.el("span", { text: "→ " + a.to + ": " + a.label + " (assigned " + dateStr + " — waiting to be taken)" }),
-        PT.el("button", {
-          class: "pt-iconbtn", text: "✓", title: "Mark as transferred (removes this note)",
-          onclick: function () {
-            PT.store.transferAssignment(env, bag.id, d.name, a.id).then(function (r) {
-              if (!r.ok) ui.toast("Failed: " + r.err);
-              ui.refresh();
-            });
-          }
-        })
-      ]));
+      var isItem = a.item !== undefined;
+      var label = isItem
+        ? "→ " + a.to + ": " + a.qty + "× " + a.item + " (assigned — move it to the sheet by hand)"
+        : (function () {
+          var when = new Date(a.t);
+          var dateStr = (when.getMonth() + 1) + "/" + when.getDate();
+          return "→ " + a.to + ": " + a.label + " (assigned " + dateStr + " — waiting to be taken)";
+        })();
+      var rowChildren = [PT.el("span", { text: label })];
+      if (!isItem) {
+        rowChildren.push(PT.el("button", {
+          class: "pt-iconbtn", text: "→", title: "Push these coins to the character's sheet",
+          onclick: function () { pushCoinAssignmentToSheet(bag, a); }
+        }));
+      }
+      rowChildren.push(PT.el("button", {
+        class: "pt-iconbtn", text: "✓", title: "Mark as transferred (removes this note)",
+        onclick: function () {
+          PT.store.transferAssignment(env, bag.id, d.name, a.id).then(function (r) {
+            if (!r.ok) ui.toast("Failed: " + r.err);
+            ui.refresh();
+          });
+        }
+      }));
+      assignRows.push(PT.el("div", { class: "pt-assign" }, rowChildren));
     });
     var items = PT.el("div", { class: "pt-items" });
     var displayItems = sortItems(itemsOverride || d.items || [], bagSort[bag.id] || "added");
@@ -631,7 +791,10 @@
       var actionBtns = [
         PT.el("button", { class: "pt-iconbtn", text: "−", title: "One fewer", onclick: function () { PT.store.changeQty(env, bag.id, d.name, it.id, -1).then(ui.refresh); } }),
         PT.el("button", { class: "pt-iconbtn", text: "+", title: "One more", onclick: function () { PT.store.changeQty(env, bag.id, d.name, it.id, +1).then(ui.refresh); } }),
-        PT.el("button", { class: "pt-iconbtn", text: "⇄", title: "Move to another bag", onclick: function () { moveItemModal(bag, it); } })
+        PT.el("button", { class: "pt-iconbtn", text: "⇄", title: "Move to another bag", onclick: function () { moveItemModal(bag, it); } }),
+        // INV-21/23a/23b: visible to everyone (players and DM alike) —
+        // controlledBy itself is what restricts which characters show up.
+        PT.el("button", { class: "pt-iconbtn", text: "→", title: "Claim this item to one of your characters", onclick: function () { claimItemModal(bag, it); } })
       ];
       if (env.isGM) {
         if (it.obscured) {

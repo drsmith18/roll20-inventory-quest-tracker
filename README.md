@@ -33,9 +33,12 @@ author's own table.** Not yet on the Chrome Web Store; it loads "unpacked"
 - A DM-only side log for secret actions (hidden bags, obscuring), plus
   visible redaction of an item's name from past log entries when you
   obscure it
+- Claim an item from a bag to your own character's sheet (D&D 2024 sheets;
+  anything else is recorded as assigned), and push split coin shares to a
+  sheet
 
-Not yet built: sending items to character sheets, sub-bags, and the quest
-tracker. That's the current order of work.
+Not yet built: sub-bags, and the quest tracker. That's the current order of
+work.
 
 ## Installing (no developer tools needed)
 
