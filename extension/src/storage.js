@@ -284,6 +284,122 @@
     });
   }
 
+  // ---- journal tidying (DEL-6) ---------------------------------------------
+  // Roll20 keeps the WHOLE journal's folder layout in one campaign value,
+  // `journalfolder`: a JSON array of {n:name, i:[children], id}, where a
+  // child is either an object id string or a nested folder. Verified live
+  // 9 Aug 2026 — Roll20 itself writes exactly this shape, and auto-creates
+  // Characters/Handouts/PDFs the first time a GM makes a folder.
+  //
+  // Two facts make this safe to touch:
+  //  - Objects that appear NOWHERE in the tree still show in the journal, at
+  //    root. So we only need to list OUR handouts; we never have to enumerate
+  //    (or risk dropping) anyone else's.
+  //  - Only a GM can write campaign values at all.
+  // The previous value is stashed in the GM index before every write, so a
+  // bad layout is recoverable with PT.store.restoreJournalFolder().
+  var folderWorking = false;
+
+  function ourHandoutIds() {
+    var ids = [];
+    [st.indexH, st.gmIndexH, st.logH, st.gmLogH].forEach(function (h) { if (h) ids.push(h.id); });
+    Object.keys(st.bagHs).forEach(function (id) { ids.push(id); });
+    return ids;
+  }
+
+  // Removes the given ids from anywhere in the tree, leaving folders intact.
+  function pruneIds(nodes, idSet) {
+    var out = [];
+    nodes.forEach(function (n) {
+      if (typeof n === "string") { if (!idSet[n]) out.push(n); return; }
+      if (n && typeof n === "object") {
+        n.i = pruneIds(n.i || [], idSet);
+        out.push(n);
+      }
+    });
+    return out;
+  }
+
+  function findFolder(nodes, name) {
+    for (var i = 0; i < nodes.length; i++) {
+      var n = nodes[i];
+      if (n && typeof n === "object") {
+        if (n.n === name) return n;
+        var deeper = findFolder(n.i || [], name);
+        if (deeper) return deeper;
+      }
+    }
+    return null;
+  }
+
+  PT.store.FOLDER_NAME = "Party Tools (do not edit)";
+
+  function tidyJournal(env) {
+    if (!env.isGM || !st.ready || folderWorking) return;
+    var ids = ourHandoutIds();
+    if (!ids.length) return;
+    var raw = Campaign.get("journalfolder");
+    var tree;
+    if (!raw) tree = [];
+    else {
+      tree = PT.tryJson(raw);
+      // Unparseable means Roll20 changed the format or something else wrote
+      // it. Do NOT overwrite what we cannot read.
+      if (!Array.isArray(tree)) {
+        PT.log("journalfolder is not an array we recognise — leaving the journal alone");
+        return;
+      }
+    }
+    var folder = findFolder(tree, PT.store.FOLDER_NAME);
+    var already = {};
+    if (folder) (folder.i || []).forEach(function (c) { if (typeof c === "string") already[c] = true; });
+    var missing = ids.filter(function (id) { return !already[id]; });
+    if (!missing.length) return;   // already tidy; no write, no churn
+
+    folderWorking = true;
+    var backup = typeof raw === "string" ? raw : "";
+    var idSet = {};
+    ids.forEach(function (id) { idSet[id] = true; });
+    tree = pruneIds(tree, idSet);
+    folder = findFolder(tree, PT.store.FOLDER_NAME);
+    if (!folder) {
+      folder = { n: PT.store.FOLDER_NAME, i: [], id: PT.uid() };
+      tree.push(folder);
+    }
+    folder.i = (folder.i || []).concat(ids);
+
+    // Stash the old layout first, so a bad write is undoable.
+    var stash = st.gmIndexH
+      ? writeMerged(st.gmIndexH, function (doc) {
+          if (!doc) return null;
+          if (doc.journalFolderBackup === backup) return null;
+          doc.journalFolderBackup = backup;
+          return doc;
+        })
+      : Promise.resolve({ ok: true });
+
+    stash.then(function () {
+      try {
+        Campaign.save({ journalfolder: JSON.stringify(tree) });
+        PT.log("filed " + missing.length + " handout(s) into the “" + PT.store.FOLDER_NAME + "” journal folder");
+      } catch (e) {
+        PT.log("could not write journalfolder:", e.message);
+      }
+      folderWorking = false;
+    });
+  }
+
+  // Console escape hatch: puts the journal layout back to whatever it was
+  // before we first filed anything. GM only.
+  PT.store.restoreJournalFolder = function () {
+    if (!st.gmIndexH) { PT.log("no GM index available"); return; }
+    return PT.store.readDoc(st.gmIndexH).then(function (doc) {
+      if (!doc || doc.journalFolderBackup === undefined) { PT.log("no journal backup stored"); return; }
+      Campaign.save({ journalfolder: doc.journalFolderBackup });
+      PT.log("journal layout restored to its pre-Party-Tools state");
+    });
+  };
+
   // ---- snapshot for the UI --------------------------------------------------
   // Re-reads the index and every listed bag. Hidden bags come from the GM
   // index, which player clients cannot read (server-enforced), so players
@@ -291,6 +407,7 @@
   PT.store.snapshot = function (env) {
     if (!st.ready) return Promise.resolve(null);
     ensureGmLog(env);
+    tidyJournal(env);   // DEL-6; no-ops once everything is already filed
     return Promise.all([PT.store.readDoc(st.indexH), st.gmIndexH ? PT.store.readDoc(st.gmIndexH) : null])
       .then(function (r) {
         var index = r[0] || { bags: [] };

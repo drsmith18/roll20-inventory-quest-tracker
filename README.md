@@ -68,8 +68,9 @@ account? Tell your DM and they can file it:
 
 - **Your data lives in your game's journal**, in handouts named `PT-…` with
   deliberately meaningless names (so hidden loot never leaks through a
-  title). Don't delete or edit those handouts by hand — that *is* the
-  party's inventory.
+  title). The DM's client files them into a folder called *Party Tools (do
+  not edit)* to keep the journal tidy. Don't delete or edit those handouts
+  by hand — that *is* the party's inventory.
 - Works on Roll20's **Jumpgate** engine. Games on the old Legacy engine get
   a polite "not supported" note.
 - Chrome (and Edge/Brave) is the tested browser. Firefox 128+ is supported
