@@ -785,7 +785,7 @@
   PT.store.addObscuredItem = function (env, bagId, bagName, itemId, qty, surfaceDesc) {
     if (!env.isGM) return Promise.resolve({ ok: false, err: "DM only" });
     var item = {
-      id: itemId, qty: Number(qty) || 1, name: surfaceDesc, obscured: true,
+      id: itemId, qty: Number(qty) || 1, name: surfaceDesc,
       addedBy: env.playerName, addedAt: Date.now()
     };
     return mutateBag(bagId, function (doc) { doc.items.push(item); }).then(function (r) {
@@ -816,6 +816,16 @@
   // items), obscure a SINGLE one of them rather than the whole stack —
   // "one of these three rings is cursed". The stack loses one, and a new
   // single obscured item appears alongside it.
+  // Is this item obscured? Answerable ONLY from the GM-only map, which a
+  // player's client never receives. Deliberately NOT a field on the item:
+  // an `obscured: true` flag in the shared bag was itself a tell — the panel
+  // highlighted the row for everyone, and a player reading their own client
+  // could see the flag. `snapshot.obscured` is {} for players, so this is
+  // always false for them, which is the point.
+  PT.store.isObscured = function (snap, itemId) {
+    return !!(snap && snap.obscured && snap.obscured[itemId]);
+  };
+
   PT.store.obscureItem = function (env, bagId, bagName, itemId, surfaceDesc, onlyOne) {
     if (!env.isGM) return Promise.resolve({ ok: false, err: "DM only" });
     surfaceDesc = (surfaceDesc || "").trim();
@@ -823,11 +833,17 @@
     if (!st.gmIndexH) return Promise.resolve({ ok: false, err: "GM index not available" });
     var h = st.bagHs[bagId] || handoutById(bagId);
     if (!h) return Promise.resolve({ ok: false, err: "bag not found" });
-    return PT.store.readDoc(h).then(function (doc) {
+    return Promise.all([PT.store.readDoc(h), PT.store.readDoc(st.gmIndexH)]).then(function (docs) {
+      var doc = docs[0], gmNow = docs[1];
       if (!doc || !doc.partyToolsBag) return { ok: false, err: "bag not found" };
       var it = (doc.items || []).filter(function (i) { return i.id === itemId; })[0];
       if (!it) return { ok: false, err: "item not found" };
-      if (it.obscured) return { ok: false, err: "item is already obscured" };
+      // Obscured-ness is known ONLY from the GM-only map — the flag is
+      // deliberately absent from the player-visible record, because its mere
+      // presence told players an item was special (see PT.store.isObscured).
+      if (gmNow && gmNow.obscured && gmNow.obscured[itemId]) {
+        return { ok: false, err: "item is already obscured" };
+      }
       var truth = {
         name: it.name, description: it.description, cost: it.cost,
         weight: it.weight, rarity: it.rarity, itemType: it.itemType,
@@ -851,7 +867,7 @@
             if ((Number(it2.qty) || 1) < 2) return false; // stack shrank under us
             it2.qty = (Number(it2.qty) || 1) - 1;
             doc2.items.push({
-              id: targetId, name: surfaceDesc, qty: 1, obscured: true,
+              id: targetId, name: surfaceDesc, qty: 1,
               addedBy: it2.addedBy, addedAt: Date.now()
             });
             return; // the original stack keeps its true identity
@@ -866,7 +882,6 @@
           delete it2.description; delete it2.cost; delete it2.weight;
           delete it2.rarity; delete it2.itemType; delete it2.pagename;
           delete it2.expansionId; delete it2.datarecords;
-          it2.obscured = true;
         }).then(function (r) {
           if (!r.ok) {
             return { ok: false, err: "true item data was saved, but the bag update failed — the item is NOT yet obscured. Try again." };
@@ -926,7 +941,7 @@
         it.pagename = truth.pagename;
         it.expansionId = truth.expansionId;
         it.datarecords = truth.datarecords;
-        delete it.obscured;
+        delete it.obscured;   // legacy records written before v0.8.3 carried this
       }).then(function (r) {
         if (!r.ok) {
           return { ok: false, err: "couldn't restore the item — it's still obscured. The true data is still safely stored; try again." };

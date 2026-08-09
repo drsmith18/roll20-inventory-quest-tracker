@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Party Tools for Roll20",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "browser_specific_settings": {
     "gecko": { "id": "party-tools@drsmith18.github.io", "strict_min_version": "128.0" }
   },

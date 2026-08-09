@@ -56,10 +56,10 @@
     ".pt-items{padding:4px 10px 8px}",
     ".pt-item{display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #2b2d33}",
     ".pt-item:last-child{border-bottom:none}",
-    // UI-7: an obscured item's row must be unmistakable to the DM (and, since
-    // it.obscured is ordinary item data every viewer already has, this reads
-    // fine as a "this is a mystery item" cue for players too — the true name
-    // tag right below is the part that's DM-only).
+    // UI-7 applies to the DM ONLY here. Marking an obscured item in the
+    // PLAYER's view defeats the entire feature: the highlight announces
+    // "this is more than it seems", which is exactly what the DM is hiding.
+    // This class is applied only when env.isGM.
     ".pt-item.pt-obscured{border-left:3px solid #b3455a;background:rgba(179,69,90,.10);padding-left:6px}",
     ".pt-truename{color:#b3455a;font-size:11px;margin-left:6px}",
     ".pt-warn{color:#e8b98a;font-size:11.5px;margin-top:8px;padding:6px 8px;border-left:3px solid #b3752f;background:rgba(179,117,47,.12)}",
@@ -795,7 +795,8 @@
       // client snapshot.obscured is always {} (storage.js's snapshot()) —
       // there is no code path here that could put a true name in front of a
       // player, in a tooltip/title or otherwise.
-      if (env.isGM && it.obscured) {
+      var isObs = env.isGM && PT.store.isObscured(snapshot, it.id);
+      if (isObs) {
         var truth = (snapshot.obscured || {})[it.id];
         if (truth) nameSpan.appendChild(PT.el("span", { class: "pt-truename", text: "[" + truth.name + "]" }));
       }
@@ -808,7 +809,7 @@
         PT.el("button", { class: "pt-iconbtn", text: "→", title: "Claim this item to one of your characters", onclick: function () { claimItemModal(bag, it); } })
       ];
       if (env.isGM) {
-        if (it.obscured) {
+        if (isObs) {
           actionBtns.push(PT.el("button", {
             class: "pt-iconbtn", text: "👁", title: "Reveal this item's true nature to the party",
             onclick: function () {
@@ -835,7 +836,8 @@
           PT.store.deleteItem(env, bag.id, d.name, it.id).then(ui.refresh);
         }
       }));
-      items.appendChild(PT.el("div", { class: "pt-item" + (it.obscured ? " pt-obscured" : "") },
+      // isObs is env.isGM-gated, so a player never gets the marker class.
+      items.appendChild(PT.el("div", { class: "pt-item" + (isObs ? " pt-obscured" : "") },
         [nameSpan, PT.el("span", { class: "pt-qty", text: "×" + (it.qty || 1) })].concat(actionBtns)));
     });
     var descDiv = d.desc ? PT.el("div", { class: "pt-bagdesc", text: d.desc }) : null;
