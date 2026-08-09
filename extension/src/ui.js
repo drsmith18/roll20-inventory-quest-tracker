@@ -86,8 +86,17 @@
     ".pt-drop-over{outline:3px dashed var(--pt-accent);outline-offset:-3px}",
     ".pt-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:99999;background:#17181c;color:var(--pt-text);border:1px solid var(--pt-edge2);border-left:3px solid var(--pt-accent);border-radius:5px;padding:9px 16px;font:13px Arial,Helvetica,sans-serif;box-shadow:0 4px 20px rgba(0,0,0,.5);max-width:70vw}",
     ".pt-modal-back{position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center}",
-    ".pt-modal{background:var(--pt-bg);color:var(--pt-text);border:1px solid var(--pt-edge2);border-radius:6px;padding:16px;width:320px;font:13px/1.5 Arial,Helvetica,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,.6)}",
-    ".pt-modal h3{margin:0 0 12px;font-size:14px;border-bottom:1px solid var(--pt-edge);padding-bottom:8px}",
+    ".pt-modal{background:var(--pt-bg);color:var(--pt-text);border:1px solid var(--pt-edge2);border-radius:6px;padding:16px;width:340px;font:13px/1.5 Arial,Helvetica,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,.6)}",
+    // Modals are appended to document.body, OUTSIDE #pt-panel, so Roll20's
+    // own stylesheet colours their h3/label/span text and the panel's colour
+    // never reaches them — which is why dialog text read as dark-on-charcoal.
+    // Force our colour onto every descendant, then re-assert the few
+    // deliberately different ones below (higher specificity, so they win).
+    ".pt-modal, .pt-modal *{color:var(--pt-text);font-family:Arial,Helvetica,sans-serif}",
+    ".pt-modal .pt-note{color:var(--pt-dim)}",
+    ".pt-modal .pt-warn{color:#e8b98a}",
+    ".pt-modal .pt-prev-share{color:var(--pt-gold)}",
+    ".pt-modal h3{margin:0 0 12px;font-size:14px;border-bottom:1px solid var(--pt-edge);padding-bottom:8px;color:var(--pt-text)}",
     ".pt-modal label{display:flex;align-items:center;gap:8px;margin:6px 0}",
     ".pt-modal input[type=number],.pt-modal input[type=text]{width:100%;background:#17181c;border:1px solid var(--pt-edge2);color:var(--pt-text);border-radius:4px;padding:5px 8px;font:inherit}",
     ".pt-modal input[type=number]{width:80px}",
@@ -249,23 +258,36 @@
         c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Add another name:" })]));
         c.appendChild(PT.el("input", { type: "text", "data-extra-name": "1", placeholder: "e.g. a hireling or NPC" }));
       }, function (c) {
-        var mode = (c.querySelector("input[name=pt-split-mode]:checked") || {}).value || "whole";
+        // NEVER default to "whole" here. The old code read the radio as
+        // (querySelector(...) || {}).value || "whole", so ANY failure to read
+        // the choice silently meant "split the entire purse" — which is how a
+        // request to split 2 gp emptied a 10 gp purse. If the choice can't be
+        // read, refuse and say so.
+        var checkedRadio = c.querySelector("input[name=pt-split-mode]:checked");
+        if (!checkedRadio) { ui.toast("Choose whether to split the whole purse or a specific amount."); return false; }
+        var mode = checkedRadio.value;
         var specific = {};
-        PT.DENOMS.forEach(function (d) {
-          var input = c.querySelector("[data-spec-denom=" + d + "]");
-          specific[d] = input ? (parseInt(input.value, 10) || 0) : 0;
-        });
+        if (mode === "whole") {
+          // "Whole purse" is resolved to explicit per-coin amounts HERE, so
+          // the preview and the write always agree on a fixed number. The
+          // write path no longer has a "take everything you find" mode.
+          PT.DENOMS.forEach(function (d) { specific[d] = Number(purse[d]) || 0; });
+        } else {
+          PT.DENOMS.forEach(function (d) {
+            var input = c.querySelector("[data-spec-denom=" + d + "]");
+            specific[d] = input ? (parseInt(input.value, 10) || 0) : 0;
+          });
+        }
         var recipients = [];
         [].forEach.call(c.querySelectorAll("[data-recipient]"), function (cb) { if (cb.checked) recipients.push(cb.value); });
         var extra = c.querySelector("[data-extra-name]").value.trim();
         if (extra) recipients.push(extra);
 
-        if (mode === "specific") {
-          var over = PT.DENOMS.some(function (d) { return specific[d] > (Number(purse[d]) || 0); });
-          if (over) { ui.toast("You can't split more of a coin than the purse holds."); return false; }
-          if (!PT.DENOMS.some(function (d) { return specific[d] > 0; })) { ui.toast("Enter an amount to split."); return false; }
-        } else if (PT.purseToCopper(purse) <= 0) {
-          ui.toast("The purse is empty."); return false;
+        // One validation path now, because both modes produce explicit amounts.
+        var over = PT.DENOMS.some(function (d) { return specific[d] > (Number(purse[d]) || 0); });
+        if (over) { ui.toast("You can't split more of a coin than the purse holds."); return false; }
+        if (!PT.DENOMS.some(function (d) { return specific[d] > 0; })) {
+          ui.toast(mode === "whole" ? "The purse is empty." : "Enter an amount to split."); return false;
         }
         if (!recipients.length) { ui.toast("Choose at least one recipient."); return false; }
 
@@ -277,8 +299,10 @@
     }
 
     function showPreview() {
-      var whole = state.mode === "whole";
-      var totalCp = whole ? PT.purseToCopper(purse) : PT.DENOMS.reduce(function (sum, d) {
+      // state.specific is always explicit now (whole-purse was resolved to
+      // concrete amounts in the form step), so preview and write cannot
+      // disagree about how much is being spent.
+      var totalCp = PT.DENOMS.reduce(function (sum, d) {
         return sum + (Number(state.specific[d]) || 0) * PT.COPPER_VALUE[d];
       }, 0);
       var n = state.recipients.length;
@@ -287,8 +311,7 @@
       var shareLabel = PT.coinLabel(PT.copperToGpMax(perCp));
       var leftover = {};
       PT.DENOMS.forEach(function (d) {
-        var deduct = whole ? (Number(purse[d]) || 0) : (Number(state.specific[d]) || 0);
-        leftover[d] = (Number(purse[d]) || 0) - deduct;
+        leftover[d] = (Number(purse[d]) || 0) - (Number(state.specific[d]) || 0);
       });
       leftover.cp = (Number(leftover.cp) || 0) + remCp;
 
@@ -302,7 +325,7 @@
         c.appendChild(PT.el("div", { class: "pt-prev-left", text: "Stays in the purse: " + PT.purseLabel(leftover) }));
       }, function () {
         var recipients = state.recipients.slice();
-        PT.store.splitCoins(env, bag.id, bag.doc.name, { whole: whole, specific: state.specific, recipients: recipients }).then(function (r) {
+        PT.store.splitCoins(env, bag.id, bag.doc.name, { specific: state.specific, recipients: recipients }).then(function (r) {
           if (!r.ok) ui.toast(r.err);
           ui.refresh();
         });
@@ -378,7 +401,20 @@
   // Obscures an item already in a bag. The surface text is the ONLY thing
   // this modal collects — no stats, nothing that touches the true record.
   function obscureItemModal(bag, item) {
+    var stack = Number(item.qty) || 1;
     modal("Obscure “" + item.name + "”", function (c) {
+      // INV-12 stacks identical items, so obscuring one of a stack of three
+      // would otherwise disguise all three. Offer the split explicitly.
+      if (stack > 1) {
+        c.appendChild(PT.el("label", {}, [
+          PT.el("input", { type: "radio", name: "pt-obs-scope", value: "one", checked: "checked" }),
+          PT.el("span", { text: "Obscure just ONE of these " + stack + " (the rest stay as they are)" })
+        ]));
+        c.appendChild(PT.el("label", {}, [
+          PT.el("input", { type: "radio", name: "pt-obs-scope", value: "all" }),
+          PT.el("span", { text: "Obscure all " + stack + " together" })
+        ]));
+      }
       c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Surface description (what players see):" })]));
       c.appendChild(PT.el("input", { type: "text", "data-f": "surface", placeholder: "a dull grey rod, warm to the touch" }));
       c.appendChild(PT.el("div", { class: "pt-note", text: "Players will see only this as the item's name — no stats, value, or true name. You can reveal it later in one click." }));
@@ -392,7 +428,9 @@
     }, function (c) {
       var surface = c.querySelector("[data-f=surface]").value.trim();
       if (!surface) return false; // empty input rejected — stay open
-      PT.store.obscureItem(env, bag.id, bag.doc.name, item.id, surface).then(function (r) {
+      var scopeEl = c.querySelector("input[name=pt-obs-scope]:checked");
+      var onlyOne = stack > 1 && (!scopeEl || scopeEl.value === "one");
+      PT.store.obscureItem(env, bag.id, bag.doc.name, item.id, surface, onlyOne).then(function (r) {
         if (!r.ok) ui.toast("Obscure failed: " + r.err);
         else if (r.redactFailed) ui.toast("Item obscured, but its name could not be removed from older log entries — check the Log tab.");
         ui.refresh();

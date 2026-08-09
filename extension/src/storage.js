@@ -695,7 +695,11 @@
   // transient loss; a second call from the UI simply tries the whole
   // operation again, and (a) is naturally idempotent — it overwrites the
   // same key with the same truth).
-  PT.store.obscureItem = function (env, bagId, bagName, itemId, surfaceDesc) {
+  // onlyOne: when the item is a stack of several (INV-12 stacks identical
+  // items), obscure a SINGLE one of them rather than the whole stack —
+  // "one of these three rings is cursed". The stack loses one, and a new
+  // single obscured item appears alongside it.
+  PT.store.obscureItem = function (env, bagId, bagName, itemId, surfaceDesc, onlyOne) {
     if (!env.isGM) return Promise.resolve({ ok: false, err: "DM only" });
     surfaceDesc = (surfaceDesc || "").trim();
     if (!surfaceDesc) return Promise.resolve({ ok: false, err: "a surface description is required" });
@@ -713,8 +717,12 @@
         pagename: it.pagename, expansionId: it.expansionId, datarecords: it.datarecords,
         hiddenAt: Date.now(), hiddenBy: env.playerName
       };
+      // Splitting one off means the obscured thing is a NEW item, so the
+      // truth is keyed to that new id, not the stack's.
+      var splitOne = !!onlyOne && (Number(it.qty) || 1) > 1;
+      var targetId = splitOne ? PT.uid() : itemId;
       // (a) FIRST — see the ordering note above.
-      return stashObscuredTruth(env, itemId, truth).then(function (gmRes) {
+      return stashObscuredTruth(env, targetId, truth).then(function (gmRes) {
         if (!gmRes.ok) {
           return { ok: false, err: "couldn't save the true item data — the item is NOT obscured yet, nothing changed. Try again." };
         }
@@ -722,6 +730,15 @@
         return mutateBag(bagId, function (doc2) {
           var it2 = (doc2.items || []).filter(function (i) { return i.id === itemId; })[0];
           if (!it2) return false;
+          if (splitOne) {
+            if ((Number(it2.qty) || 1) < 2) return false; // stack shrank under us
+            it2.qty = (Number(it2.qty) || 1) - 1;
+            doc2.items.push({
+              id: targetId, name: surfaceDesc, qty: 1, obscured: true,
+              addedBy: it2.addedBy, addedAt: Date.now()
+            });
+            return; // the original stack keeps its true identity
+          }
           it2.name = surfaceDesc;
           // Deleted, not blanked: an empty string/0 is still a value a
           // console-savvy player could read as "confirmed no rarity" etc.
@@ -870,15 +887,17 @@
       doc.purse = doc.purse || {};
       var cur = doc.purse;
       var deduct = {};
-      if (opts.whole) {
-        PT.DENOMS.forEach(function (d) { deduct[d] = Number(cur[d]) || 0; });
-      } else {
-        var enough = PT.DENOMS.every(function (d) {
-          deduct[d] = Number(opts.specific[d]) || 0;
-          return (Number(cur[d]) || 0) >= deduct[d];
-        });
-        if (!enough) return false;
-      }
+      // There is deliberately NO "split the whole purse" mode here any more.
+      // The caller always states an exact amount, which is the same amount
+      // the user saw in the preview. The old whole-purse branch re-read the
+      // purse at write time, so a UI slip (or coins arriving between preview
+      // and confirm) could spend far more than the user agreed to — that is
+      // exactly how a request to split 2 gp emptied a 10 gp purse.
+      var enough = PT.DENOMS.every(function (d) {
+        deduct[d] = Number(opts.specific && opts.specific[d]) || 0;
+        return (Number(cur[d]) || 0) >= deduct[d];
+      });
+      if (!enough) return false;
       var totalCp = PT.DENOMS.reduce(function (sum, d) { return sum + deduct[d] * PT.COPPER_VALUE[d]; }, 0);
       if (totalCp <= 0 || n <= 0) return false;
       var perCp = Math.floor(totalCp / n);
