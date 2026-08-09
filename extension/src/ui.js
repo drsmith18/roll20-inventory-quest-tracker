@@ -511,8 +511,13 @@
         return removeFromBag().then(function (r) {
           if (r.ok) {
             PT.store.appendLog(env, env.playerName + " claimed " + qty + "× “" + item.name + "” to " + charName);
+            return r;
           }
-          return r;
+          // The item IS on the sheet but did NOT leave the bag. Reporting a
+          // plain "claim failed" here would be a lie that costs the user:
+          // they would retry and end up with two copies on the sheet. Flag
+          // it distinctly so the caller can say exactly what happened.
+          return { ok: false, halfDone: true, err: r.err };
         });
       });
     }
@@ -582,7 +587,13 @@
       }
       var unsupportedClaim = !PT.sheets.isSupported(character);
       doClaimItem(bag, item, character, qty).then(function (r) {
-        if (!r.ok) { ui.toast("Claim failed: " + r.err); return; }
+        if (r.halfDone) {
+          ui.toast("“" + item.name + "” IS now on " + character.get("name") +
+            "’s sheet, but it could not be removed from the bag. Delete it from the bag by hand — do NOT claim it again or you'll get two.", 12000);
+          ui.refresh();
+          return;
+        }
+        if (!r.ok) { ui.toast("Claim failed, nothing was changed: " + r.err); ui.refresh(); return; }
         if (unsupportedClaim) {
           ui.toast("“" + item.name + "” recorded as assigned to " + character.get("name") + " — move it onto the sheet by hand.");
         }
