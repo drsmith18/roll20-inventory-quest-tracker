@@ -1,14 +1,19 @@
 # Party Tools for Roll20 — shared inventory & quest tracker
 
-A Chrome extension that adds a **shared party inventory** to a Roll20 game —
+A browser extension (Chrome and Firefox) that adds a **shared party inventory** to a Roll20 game —
 bags of items and coins the whole party can see and edit, with a full
 who-did-what activity log. A DM-controlled quest tracker is planned next.
 All data is stored *inside* the Roll20 campaign itself (as journal
 handouts), so there is no external server, no accounts, and nothing to host.
 
-**Status: v0.1 — first working inventory build, being tested at the
-author's own table.** Not yet on the Chrome Web Store; it loads "unpacked"
-(instructions below).
+**Status: v0.8 beta — the inventory is feature-complete and in testing at
+the author's own table.** Not in the browser add-on stores yet, so it
+installs by hand.
+
+> ### 👉 Just want to install it and play?
+> **Read [INSTALL.md](INSTALL.md)** — step-by-step instructions for Chrome
+> and Firefox, written for players who've never installed an extension this
+> way. That's the link to send your group.
 
 ## What works today
 
@@ -40,34 +45,16 @@ author's own table.** Not yet on the Chrome Web Store; it loads "unpacked"
 Not yet built: sub-bags, and the quest tracker. That's the current order of
 work.
 
-## Installing (no developer tools needed)
+## Installing
 
-**Chrome** (main supported browser):
+Full instructions for players are in **[INSTALL.md](INSTALL.md)** (Chrome,
+Edge and Firefox, with troubleshooting).
 
-1. Download this repository: green **Code** button above → **Download
-   ZIP**, then unzip it somewhere you won't delete by accident.
-2. In Chrome, go to `chrome://extensions` (type it in the address bar).
-3. Turn on **Developer mode** (toggle, top-right corner).
-4. Click **Load unpacked** (button, top-left) and select the **`extension`
-   folder** inside the unzipped download — the folder that contains
-   `manifest.json`, not the whole repository.
-5. Open (or reload) your Roll20 game. A **PARTY TOOLS** tab appears on the
-   right edge of the screen. Click it.
-
-**Firefox** (experimental): open `about:debugging#/runtime/this-firefox`,
-click **Load Temporary Add-on…**, and select the `manifest.json` file inside
-the `extension` folder. Needs Firefox 128 or newer. Note "temporary" is
-Firefox's word, not ours: the add-on unloads when Firefox closes and has to
-be loaded again next time. That's a Firefox restriction on unsigned
-extensions; a permanent Firefox install comes with store signing, later.
-
-**First time in a game:** the DM opens the panel first — that creates the
-storage and a "Party Loot" bag. Players who open it before the DM has done
-this will see a message saying so.
-
-**Updating:** download the new ZIP, replace the old folder, then on
-`chrome://extensions` click the ↻ reload icon on the Party Tools card, and
-reload the Roll20 tab.
+Short version for the impatient: download the repo as a ZIP, unzip it, then
+in Chrome go to `chrome://extensions`, turn on **Developer mode**, click
+**Load unpacked**, and pick the `extension` folder. Reload your Roll20 game
+and click the treasure-chest tab on the right edge. The DM must open the
+panel once in each game before players can use it.
 
 ## Reporting bugs (please do!)
 
@@ -83,8 +70,10 @@ account? Tell your DM and they can file it:
   deliberately meaningless names (so hidden loot never leaks through a
   title). Don't delete or edit those handouts by hand — that *is* the
   party's inventory.
-- Works on Roll20's **Jumpgate** engine and, for now, Chrome. Games on the
-  old Legacy engine get a polite "not supported" note.
+- Works on Roll20's **Jumpgate** engine. Games on the old Legacy engine get
+  a polite "not supported" note.
+- Chrome (and Edge/Brave) is the tested browser. Firefox 128+ is supported
+  by the manifest but not yet verified in real play — see INSTALL.md.
 - **Trust model:** hidden bags are genuinely hidden (server-enforced), but
   the tool doesn't try to stop a determined cheat editing *visible* shared
   data — same as the table itself, it runs on trust.
@@ -93,8 +82,9 @@ account? Tell your DM and they can file it:
 
 | Path | What it is |
 |---|---|
-| `extension/` | The Chrome extension — the actual product |
-| `docs/roll20-party-tools-prd.md` | Product requirements (v0.4, post-spike). Every requirement has an ID |
+| `extension/` | The browser extension — the actual product |
+| `INSTALL.md` | Install guide for players — the link to send your group |
+| `docs/roll20-party-tools-prd.md` | Product requirements (v0.5). Every requirement has an ID |
 | `docs/roll20-technical-findings.md` | What was verified by inspecting Roll20 live, 8 Aug 2026 |
 | `docs/roll20-spike-brief.md` | The six make-or-break tests that were run before any code |
 | `docs/roll20-spike-findings.md` | The answers — all six spikes, with evidence |
