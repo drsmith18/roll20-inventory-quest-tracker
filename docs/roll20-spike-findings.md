@@ -297,3 +297,30 @@ visibility is a property of the handout, not of entries within it.
 path for object *creation*. Any future feature where a player's client
 creates a Roll20 object (characters, pages, macros) should be assumed
 forbidden until tested from the player account.
+
+---
+
+## Build verification — obscured items do not leak (9 Aug 2026)
+
+The obscured-item feature (INV-16) was checked from the PLAYER account by
+dumping the client's own snapshot, i.e. reading exactly what that browser
+received, not what the UI chose to draw.
+
+An obscured item as the player's client holds it:
+
+```
+{"id":"<redacted>","name":"Rusty Sword","qty":1,"obscured":true,
+ "addedBy":"DR","addedAt":...}
+```
+
+`"Rusty Sword"` is the DM-written surface description. Absent — not blanked,
+absent — are `description`, `cost`, `weight`, `rarity`, `itemType`,
+`pagename`, `expansionId` and `datarecords`. Non-obscured items in the same
+bag showed their full data, confirming the dump was complete and the
+difference is the feature working rather than a loading artefact. Hidden
+bags did not appear at all.
+
+**Conclusion: the hiding is server-enforced and real.** A player with a
+console cannot recover an obscured item's identity from their own client.
+This is the property C1/INV-16 promise, verified end-to-end in the built
+product rather than only in a spike.
