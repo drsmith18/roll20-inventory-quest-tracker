@@ -58,7 +58,7 @@
   PT.drops.resolve = function (payload) {
     var url = "/compendium/compendium/getPages?bookName=dnd5e&pages%5B%5D=" +
       encodeURIComponent(payload.pagename) +
-      "&sharedCompendium=" + window.campaign_id +
+      "&sharedCompendium=" + encodeURIComponent(window.campaign_id) +
       "&expansionId=" + encodeURIComponent(payload.expansionId) + "&dragDropRequest=true&_=" + Date.now();
     var fallbackName = decodeURIComponent(payload.pagename).split(":").pop();
     return fetch(url, { credentials: "same-origin" })
