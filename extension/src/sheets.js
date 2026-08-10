@@ -1156,6 +1156,14 @@
       });
 
       var out = { version: PT.VERSION, character: characterName, item: itemName, found: matches.length, items: [] };
+      if (!matches.length) {
+        // Guessing an item's exact name costs a round trip. Hand back what
+        // this sheet actually has instead.
+        out.itemsOnSheet = Object.keys(ints)
+          .filter(function (k) { return ints[k].type === "Item" && (ints[k].name || "").trim(); })
+          .map(function (k) { return ints[k].name; })
+          .sort();
+      }
       matches.slice(0, 4).forEach(function (id) {
         var rec = ints[id];
         var ids = subtreeIds(ints, id) || [id];

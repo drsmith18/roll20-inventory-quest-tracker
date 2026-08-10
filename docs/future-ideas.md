@@ -322,62 +322,68 @@ obscured items along with `pagename`, since a page id names an item exactly.)
 
 ---
 
-## Item types other than weapons — armour, containers, magic items
+## Item types other than weapons — armour, magic items, containers
 
-**Asked at the table, Aug 2026:** "will armour have similar issues?"
+**Surveyed, Aug 2026.** `PT.sheets.survey()` over a real bag settled this
+properly. Ten items, eight distinct payload shapes:
 
-Almost certainly yes, for anything whose *function* lives in records beside
-the Item. The general rule the weapon work established:
+| Payload shape | Example | Claims complete? |
+|---|---|---|
+| `Item` | Abacus | yes |
+| `Item+Attack+Damage` | Acid, Adamantine Greatclub | yes |
+| `Item+Attack+Damage+Attack+Damage` | Adamantine Javelin | yes |
+| `Item+Armor Class+Defense` | Adamantine Breastplate | **no** |
+| `Item+Defense+Armor Class` | Adamantine Chain Shirt | **no** |
+| `Item+Attunement+Ability Score` | Amulet of Health | **no** |
+| `Item+Attunement+Attack+Damage+Attack+Damage+Action+Resource+Healing+Action+Resource` | Acheron Longsword | **partly** — it swings, but loses its magic |
+| no payload | two amulets | n/a (name-only fallback) |
 
-- The **Item record itself** always comes across intact, because it is copied
-  from the compendium verbatim. So an item's name, description, cost, weight,
-  properties and its type data (`weaponData`, and presumably an equivalent
-  for armour) are fine. This is why a claimed longsword looked right in the
-  inventory list from v0.9.2 onward.
-- Anything **mechanical that lives in a sibling record** needs a rule written
-  for it, one type at a time. Attack and Damage have one now. Nothing else
-  does.
+So the record types still needing rules are:
+**`Armor Class`, `Defense`, `Attunement`, `Ability Score`, `Action`,
+`Resource`, `Healing`.**
 
-Likely to need work, in rough order of how often a table hits them:
+### The trap: order is NOT stable outside Attack/Damage
 
-1. **Armour and shields** — if AC comes from a sibling record rather than
-   from a field on the Item, armour will equip and show but grant nothing.
-2. **Containers** (Explorer's Pack, Priest's Pack) — their contents arrive as
-   extra `Item` records. Only the first Item is written, so a claimed pack
-   would arrive empty. Note the sheet side of this already works: a contained
-   item is just an Item whose parent is another Item, and `sheets.listItems`
-   already reports which container something sits in.
-3. **Magic items with bonuses** (+1 weapons, cloaks of protection) — likely
-   a modifier record of some kind.
-4. **Consumables** (potions) — may carry an action or healing record.
+The two armour pieces carry the same two records in **opposite order**
+(`Armor Class, Defense` vs `Defense, Armor Class`). The Attack/Damage rule
+pairs by order, and that is safe because a Damage always follows the Attack
+it belongs to — but **an armour rule must not depend on order**, and neither
+must anything else generalised from the weapon case. Generalising the
+ordering assumption would have produced a bug that only shows up on half the
+armour in the game.
 
-**v0.9.7 makes this visible instead of silent.** A claim now counts and names
-every payload record it didn't write, and says so in a toast. Before this, a
-container's contents were the one loss nobody was told about — they weren't
-even counted.
+### Priority
 
-**Start with `PT.sheets.survey()`** (v0.9.13). It lists every item in every
-bag with the record types its payload carries and whether claiming would drop
-anything — so it answers "does armour work?" for armour and everything else
-at once, instead of a dump per item type.
+1. **Armour** (`Armor Class`, `Defense`) — most common, and currently
+   silently useless: the piece equips and shows, and grants nothing.
+2. **Attunement** — appears on both the amulet and the magic longsword, so
+   one rule covers several shapes.
+3. **`Action`/`Resource`/`Healing`** — magic item abilities. The Acheron
+   Longsword shows two `Action`+`Resource` groups plus a `Healing`, so these
+   probably do group by order like Attack/Damage. Worth confirming rather
+   than assuming, given the armour finding above.
+4. **Containers** — not seen in this survey; extra `Item` records.
 
-Read it like this:
+### The two dumps for each
 
-- `types: ["Item"]` and nothing unwritten -> that item already claims
-  complete. **If armour reads this way, armour works today**, because the
-  Item record is copied verbatim and would carry whatever the armour
-  equivalent of `weaponData` is.
-- `unwritten: [...]` -> record types with no rule yet. That list IS the work.
+For the shape being worked on, e.g. armour:
 
-**Then, only for a shape that shows up as unwritten:**
-`PT.sheets.payloadDump("Chain Mail")` for the content we are given, and
-`PT.sheets.weaponDump("Character", "Chain Mail")` against one the sheet built
-itself for the structure to build. That pair turned the weapon problem from
-guesswork into a morning's work, and will do the same for each of these.
+```js
+window.PartyTools.sheets.payloadDump("Adamantine Breastplate")   // what we are given
+window.PartyTools.sheets.weaponDump("Character", "Chain Mail")   // what the sheet builds
+```
 
-**Passive signal, no command needed:** since v0.9.7 a claim toasts the record
-types it could not write. Claim a piece of armour and get no such warning,
-and nothing was dropped.
+`weaponDump` lists the sheet's item names if the one you asked for isn't
+there, so a wrong guess costs a line rather than a round trip. The pair is
+what turned the weapon problem from four versions of guessing into one
+correct change.
+
+### Items with no payload at all
+
+Two amulets surveyed as "no payload (manual or name-only)". That is INV-11's
+fallback: the compendium lookup returned no `id`, most likely an unowned
+book. Nothing to fix in the writer — but worth knowing that such items can
+only ever arrive as a name, whatever rules get written.
 
 ---
 

@@ -400,6 +400,10 @@ const SHEET_GRAPH = JSON.stringify([
   check("it reports the ancestry", /\(root\)$/.test(wd.items[0].ancestry), wd.items[0].ancestry);
   check("it has a related list for attacks attached elsewhere",
     Array.isArray(wd.items[0].related));
+  const wdNoItem = await PT.sheets.weaponDump(hero2.get("name"), "Nonexistent Armour");
+  check("a name that matches nothing lists the sheet's item names",
+    Array.isArray(wdNoItem.itemsOnSheet) && wdNoItem.itemsOnSheet.includes("Longsword"),
+    JSON.stringify(wdNoItem.itemsOnSheet));
   const wdMiss = await PT.sheets.weaponDump("Nobody At All", "x");
   check("an unknown character lists the names it does know",
     Array.isArray(wdMiss.knownNames) && wdMiss.knownNames.includes(hero2.get("name")),
