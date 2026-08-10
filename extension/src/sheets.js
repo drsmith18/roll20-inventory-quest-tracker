@@ -640,6 +640,173 @@
     return chain.join(" < ");
   }
 
+  // ---- probes for "let the sheet build the item" ----------------------------
+  // Two experiments behind the open question in docs/future-ideas.md: can we
+  // hand the sheet a compendium page id and let it do the work, instead of
+  // reimplementing every record type by hand?
+
+  // ROUTE 1. Does the open character sheet register a jQuery UI drop target?
+  // Roll20's own compendium-to-sheet drop does the whole job already, and
+  // drops.js proves that machinery can be driven (it enables and disables
+  // Roll20's canvas zone on every drag). This just reports what drop targets
+  // exist, so we know whether there is anything to aim at.
+  //
+  // Read-only, and safe to run any time.
+  PT.sheets.probeDropTargets = function () {
+    var out = { version: PT.VERSION, droppables: [] };
+    if (!window.$ || !$.ui || !$.ui.ddmanager) {
+      out.error = "jQuery UI's ddmanager isn't on this page, so nothing is registered as a drop target";
+      console.log("[PartyTools] probeDropTargets:\n" + JSON.stringify(out, null, 2));
+      return out;
+    }
+    var reg = $.ui.ddmanager.droppables || {};
+    Object.keys(reg).forEach(function (scope) {
+      (reg[scope] || []).forEach(function (d) {
+        var el = d && d.element && d.element[0];
+        if (!el) return;
+        var classes = typeof el.className === "string" ? el.className : "";
+        out.droppables.push({
+          scope: scope,
+          tag: el.tagName,
+          id: el.id || null,
+          classes: classes.slice(0, 140) || null,
+          // A zero-sized element is registered but not on screen — it can't
+          // be dropped onto as things stand.
+          visible: !!(el.offsetWidth || el.offsetHeight),
+          insideCharacterSheet: !!(el.closest && el.closest(
+            ".characterdialog, .charsheet, .character-sheet, [class*='haracter']"))
+        });
+      });
+    });
+    out.note = "Open a character sheet BEFORE running this, then look for a droppable with insideCharacterSheet true. That is the target a synthesised drop would aim at.";
+    console.log("[PartyTools] probeDropTargets:\n" + JSON.stringify(out, null, 2));
+    return out;
+  };
+
+  // ROUTE 2. Does the sheet enrich a record that carries only a
+  // compendiumPageID? Writes a deliberately BARE item — a name, a page id,
+  // and nothing else, no weaponData, no attacks — then waits and re-reads to
+  // see whether the sheet filled anything in or created records of its own.
+  //
+  // *** THIS WRITES TO A CHARACTER SHEET. Use a throwaway character. ***
+  // It removes the probe item afterwards unless you pass {cleanup: false},
+  // and reports what it saw either way.
+  //
+  // itemOrPageId: a compendium page id, or the name of an item in a bag to
+  // take the page id from (drops have stored one since v0.9.8).
+  PT.sheets.probeEnrich = function (characterName, itemOrPageId, opts) {
+    opts = opts || {};
+    var waitMs = opts.waitMs || 8000;
+    var character = null;
+    try {
+      character = Campaign.characters.models.filter(function (c) {
+        return (c.get("name") || "") === characterName;
+      })[0] || null;
+    } catch (e) {}
+    if (!character) return Promise.resolve(logProbe({ error: "no character named " + JSON.stringify(characterName) }));
+
+    return resolvePageId(itemOrPageId).then(function (res) {
+      if (res.error) return logProbe(res);
+      var pageId = res.pageId;
+
+      return prepareWrite(character).then(function (p) {
+        if (!p.ok) return logProbe({ error: p.err });
+        var next = JSON.parse(JSON.stringify(p.doc));
+        var ints = next.integrants && next.integrants.integrants;
+        if (!ints) return logProbe({ error: "store has no integrants" });
+
+        var probeId = PT.uid();
+        var before = Object.keys(ints).length;
+        ints[probeId] = {
+          _enabled: true,
+          _id: probeId,
+          childIDs: "[]",
+          compendiumPageID: pageId,
+          createdTime: Date.now(),
+          name: opts.name || "PT enrichment probe",
+          parentID: "",
+          quantity: 1,
+          recordName: opts.name || "PT enrichment probe",
+          shortID: shortId(),
+          type: "Item"
+        };
+        var wroteKeys = Object.keys(ints[probeId]).sort().join(",");
+
+        return writeStore(character, p.storeAttr, next, function (doc) {
+          var bi = doc.integrants && doc.integrants.integrants;
+          return !!(bi && bi[probeId]);
+        }).then(function (wr) {
+          if (!wr.ok) return logProbe({ error: "the probe item could not be written: " + wr.err });
+          return PT.delay(waitMs).then(function () {
+            return prepareRead(character).then(function (after) {
+              if (!after.ok) return logProbe({ error: "could not re-read: " + after.err });
+              var ai = (after.doc.integrants && after.doc.integrants.integrants) || {};
+              var rec = ai[probeId];
+              var out = {
+                version: PT.VERSION,
+                pageId: pageId,
+                waitedMs: waitMs,
+                wroteKeys: wroteKeys,
+                stillThere: !!rec,
+                nowKeys: rec ? Object.keys(rec).sort().join(",") : null,
+                // The question in one field: did the sheet add anything we
+                // did not write?
+                fieldsAddedBySheet: rec
+                  ? Object.keys(rec).filter(function (k) { return wroteKeys.split(",").indexOf(k) === -1; })
+                  : [],
+                recordsAddedBySheet: Object.keys(ai).filter(function (k) {
+                  return ai[k] && (ai[k].parentID === probeId || ai[k].sourceID === probeId);
+                }).map(function (k) { return { type: ai[k].type, name: ai[k].name }; }),
+                integrantsBefore: before,
+                integrantsAfter: Object.keys(ai).length,
+                record: rec ? JSON.stringify(rec).slice(0, 1500) : null
+              };
+              out.verdict = (out.fieldsAddedBySheet.length || out.recordsAddedBySheet.length)
+                ? "THE SHEET ENRICHED IT — a page id may be enough, see docs/future-ideas.md"
+                : "no enrichment: the sheet left the bare record exactly as written";
+              if (opts.cleanup === false) {
+                out.cleanup = "left on the sheet by request; its id is " + probeId;
+                return logProbe(out);
+              }
+              return PT.sheets.takeItem(character, probeId, 1).then(function (rm) {
+                out.cleanup = rm.ok ? "probe item removed" : "COULD NOT REMOVE, delete it by hand: " + rm.err;
+                return logProbe(out);
+              });
+            });
+          });
+        });
+      });
+    });
+  };
+
+  function logProbe(o) {
+    console.log("[PartyTools] probeEnrich:\n" + JSON.stringify(o, null, 2));
+    return o;
+  }
+
+  // A page id straight through, or looked up from a bag item by name.
+  function resolvePageId(itemOrPageId) {
+    var arg = String(itemOrPageId || "").trim();
+    if (!arg) return Promise.resolve({ error: "pass a compendium page id, or the name of an item in a bag" });
+    if (/^[a-f0-9]{16,}$/i.test(arg)) return Promise.resolve({ pageId: arg });
+    if (!PT.store || !PT.store.snapshot) {
+      return Promise.resolve({ error: "storage isn't ready, so a name can't be looked up — pass a page id" });
+    }
+    return PT.store.snapshot(PT.envInfo).then(function (snap) {
+      var found = null;
+      ((snap && snap.bags) || []).forEach(function (b) {
+        (b.doc.items || []).forEach(function (it) {
+          if (!found && (it.name || "").toLowerCase().indexOf(arg.toLowerCase()) !== -1 && it.compendiumPageID) {
+            found = it.compendiumPageID;
+          }
+        });
+      });
+      return found
+        ? { pageId: found }
+        : { error: "no bagged item matching " + JSON.stringify(arg) + " has a stored page id. Items dropped before v0.9.8 don't have one — re-drop it from the compendium, or pass a page id directly." };
+    });
+  }
+
   // Console diagnostic: PT.sheets.payloadDump("Longsword")
   //
   // The other side of weaponDump: what the COMPENDIUM gives us for an item
@@ -1116,6 +1283,25 @@ window.PartyTools.sheets.controlledBy({ isGM: true, playerId: null })
 //      compendium payload does not describe.
 /*
 copy(JSON.stringify(await window.PartyTools.sheets.report("Spike Warm", { full: true }), null, 2))
+*/
+//
+// (a3) The two probes behind "let the sheet build the item instead"
+//      (docs/future-ideas.md). Run ROUTE 2 first — it's one line and it
+//      either dissolves a lot of future work or rules the idea out.
+//
+//      ROUTE 2 — does a compendium page id alone make the sheet fill an item
+//      in? *** WRITES to the named character; use a throwaway. *** It removes
+//      its probe item afterwards. Name a weapon sitting in a bag (dropped on
+//      v0.9.8 or later, so it has a stored page id), or pass a page id:
+/*
+await window.PartyTools.sheets.probeEnrich("Test Dummy", "Longsword")
+*/
+//
+//      ROUTE 1 — is there a drop target on an open character sheet that a
+//      synthesised compendium drop could aim at? Open a character sheet
+//      first. Read-only:
+/*
+window.PartyTools.sheets.probeDropTargets()
 */
 //
 // (b) Read a named character's coin purse (read-only, safe to run any time):

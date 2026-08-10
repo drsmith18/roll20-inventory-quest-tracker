@@ -193,6 +193,24 @@ page X to character Y" entry point is known. It may not be reachable at all.
    the wire. Most work, most fragile, and it would be undocumented API on top
    of undocumented API.
 
+**Both are now one-line probes** (v0.9.9), so this is a ten-minute question
+rather than a project:
+
+```js
+// ROUTE 2 first — WRITES to the named character, so use a throwaway.
+// Puts a deliberately bare item on the sheet (a name and a page id, nothing
+// else), waits, re-reads, and reports whether the sheet added any fields or
+// records of its own. Removes the probe item afterwards.
+await window.PartyTools.sheets.probeEnrich("Test Dummy", "Longsword")
+
+// ROUTE 1 — open a character sheet first. Read-only. Lists every jQuery UI
+// drop target on the page; look for one with insideCharacterSheet true.
+window.PartyTools.sheets.probeDropTargets()
+```
+
+Record the answers here either way. A `verdict` of "THE SHEET ENRICHED IT"
+means a page id may be enough and the per-type work can stop.
+
 **Worth doing before the next item type is built by hand.** If (1) or (2)
 works, armour, magic items and containers all stop being separate problems.
 If neither does, at least the per-type approach is a considered choice rather

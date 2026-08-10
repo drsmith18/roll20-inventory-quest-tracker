@@ -405,6 +405,31 @@ const SHEET_GRAPH = JSON.stringify([
     Array.isArray(wdMiss.knownNames) && wdMiss.knownNames.includes(hero2.get("name")),
     JSON.stringify(wdMiss.knownNames));
 
+  // The probes behind "let the sheet build the item". probeEnrich WRITES, so
+  // its safety behaviour is worth testing: it must clean up after itself, and
+  // must report honestly when the sheet does nothing (which is the expected
+  // answer against a stub that has no sheet logic at all).
+  section("the enrichment probe:");
+  const probeChar = makeCharacter("Vex", { controlledby: "p1" });
+  win.Campaign.characters.models = [probeChar];
+  const before = Object.keys(integrantsOf(probeChar)).length;
+  const probe = await PT.sheets.probeEnrich(probeChar.get("name"), "66a7b0b4b69ce10013cfb325", { waitMs: 10 });
+  check("it writes a bare record and finds it", probe.stillThere === true, JSON.stringify(probe.error));
+  check("it reports no enrichment against a stub with no sheet logic",
+    /no enrichment/.test(probe.verdict), probe.verdict);
+  check("it names the fields it wrote", /compendiumPageID/.test(probe.wroteKeys), probe.wroteKeys);
+  check("it cleans the probe item off the sheet", /removed/.test(probe.cleanup), probe.cleanup);
+  check("the sheet is back exactly as it was",
+    Object.keys(integrantsOf(probeChar)).length === before,
+    Object.keys(integrantsOf(probeChar)).length + " vs " + before);
+  const probeMiss = await PT.sheets.probeEnrich("Nobody", "abc123");
+  check("an unknown character is refused, not written to", !!probeMiss.error, JSON.stringify(probeMiss));
+  const probeBadId = await PT.sheets.probeEnrich(probeChar.get("name"), "");
+  check("an empty page id is refused", !!probeBadId.error, JSON.stringify(probeBadId));
+  check("the drop-target probe degrades without jQuery UI",
+    !!PT.sheets.probeDropTargets().error);
+
+  win.Campaign.characters.models = [hero2];
   const missing = await PT.sheets.report("Nobody At All");
   check("report also lists known names on a miss",
     Array.isArray(missing.knownNames), JSON.stringify(missing.knownNames));
