@@ -777,23 +777,77 @@
       out.error = "no .charsheet-compendium-drop-target in the DOM — open a character sheet and leave it open";
       return logRelay(out);
     }
-    out.elementInternals = Object.keys(el).filter(function (k) {
-      return k.charAt(0) === "_" || k.charAt(0) === "$";
-    });
+    var roots = [];
 
-    // Candidate roots: framework internals hung off the element and each of
-    // its ancestors. Vue puts __vueParentComponent / __vnode on the node;
-    // older builds used __vue__.
-    var roots = [], node = el, depth = 0;
+    // EVERY own property, not a filtered subset. The first version of this
+    // probe only looked for keys starting with _ or $, which excluded
+    // jQuery's expando ("jQuery19104...") — precisely where a Backbone view
+    // or a droppable instance hides.
+    out.elementInternals = Object.getOwnPropertyNames(el).slice(0, 40);
+    // Anything hung off an own property of the element is a candidate root,
+    // whatever it is called.
+    Object.getOwnPropertyNames(el).forEach(function (k) {
+      var v;
+      try { v = el[k]; } catch (e) { return; }
+      if (v && typeof v === "object" && !(v instanceof Node)) {
+        roots.push({ path: "el." + k, obj: v });
+      }
+    });
+    try {
+      if (window.$ && $(el).data) {
+        var jq = $(el).data() || {};
+        out.jqueryData = Object.keys(jq);
+        Object.keys(jq).forEach(function (k) {
+          if (jq[k] && typeof jq[k] === "object") roots.push({ path: "$(el).data()." + k, obj: jq[k] });
+        });
+      }
+    } catch (e) { out.jqueryDataError = e.message; }
+
+    // The global the handler calls. Its source may name the relay, and it is
+    // reachable from a content script, unlike the component itself.
+    if (typeof window.wantsToReceiveDrop === "function") {
+      out.wantsToReceiveDropSource = String(window.wantsToReceiveDrop).slice(0, 1200);
+    }
+
+    // Framework internals on the element and each ancestor. Vue puts
+    // __vueParentComponent / __vnode on the node; older builds used __vue__.
+    var node = el, depth = 0;
     while (node && depth++ < 10) {
       ["__vueParentComponent", "__vue__", "__vnode", "_reactRootContainer"].forEach(function (key) {
         if (node[key]) roots.push({ path: "<" + (node.className || node.tagName) + ">." + key, obj: node[key] });
       });
+      // jQuery data on ancestors too — the droppable is registered on the
+      // target, but the VIEW that owns it may sit further up.
+      try {
+        if (window.$ && node.nodeType === 1) {
+          var d = $(node).data() || {};
+          Object.keys(d).forEach(function (k) {
+            if (d[k] && typeof d[k] === "object") {
+              roots.push({ path: "$(" + (node.id || node.className || node.tagName) + ").data()." + k, obj: d[k] });
+            }
+          });
+        }
+      } catch (e) { /* some nodes refuse; not worth failing over */ }
       node = node.parentElement;
     }
-    out.rootsFound = roots.map(function (r) { return r.path; });
+    out.rootsFound = roots.map(function (r) { return r.path; }).slice(0, 40);
+    // The droppable instances themselves: their `options.drop` closes over
+    // the component, and while a closure can't be opened, the instance may
+    // carry other references worth walking.
+    try {
+      if (window.$ && $.ui && $.ui.ddmanager) {
+        var reg = $.ui.ddmanager.droppables || {};
+        Object.keys(reg).forEach(function (scope) {
+          (reg[scope] || []).forEach(function (d) {
+            var dEl = d && d.element && d.element[0];
+            if (dEl && dEl === el) roots.push({ path: "ddmanager." + scope + "[droppable]", obj: d });
+          });
+        });
+      }
+    } catch (e) { /* covered by the error path below */ }
+
     if (!roots.length) {
-      out.error = "no framework internals on the drop target or its ancestors — the component isn't reachable this way";
+      out.error = "nothing hung off the drop target or its ancestors — the component isn't reachable from the DOM";
       return logRelay(out);
     }
 

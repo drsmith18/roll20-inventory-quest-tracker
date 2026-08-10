@@ -261,10 +261,23 @@ Two other things the handler tells us:
   script.
 
 The remaining question is whether `C` — and its `relay` — can be reached from
-outside. `PT.sheets.probeDropRelay()` searches the drop target's framework
-internals and its ancestors' for an object with a `dropOver` method, bounded
-so it can't walk the whole page. If the relay lives in a closure with no
-reference hung off the DOM, this route closes.
+outside. `PT.sheets.probeDropRelay()` searches for an object with a
+`dropOver` method, bounded so it can't walk the whole page.
+
+**First run (v0.9.11): nothing.** `window.wantsToReceiveDrop` is confirmed a
+real global, and the drop target is in the DOM with a sheet open, but the
+element carried no framework internals. That first probe had a blind spot —
+it only looked at own properties starting with `_` or `$`, which excludes
+jQuery's expando (`jQuery19104…`), the likeliest hiding place for a Backbone
+view. v0.9.12 widens it to every own property, jQuery `.data()` on the target
+AND its ancestors, and the droppable instance itself.
+
+**If that also comes back empty, this route is closed** and should be
+recorded as such: the component keeps its relay in a closure with no
+reference reachable from the DOM, and nothing short of intercepting the
+Beacon `postMessage` traffic would get at it. That is undocumented API on top
+of undocumented API, on a page where a wrong guess writes to a real
+character — not worth it against a record-writing path that already works.
 
 **Note the constraint either way:** the target sits inside the sheet dialog
 (`.charsheet-compendium-drop-target < .iframeHolder < .handout-dialog`), so

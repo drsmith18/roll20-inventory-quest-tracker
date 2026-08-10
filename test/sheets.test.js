@@ -453,7 +453,16 @@ const SHEET_GRAPH = JSON.stringify([
       $el: win.document.body
     }
   };
+  // A root reachable only via an own property whose name is neither _ nor $
+  // prefixed — the jQuery-expando case the first version of this probe
+  // filtered out and missed on a live sheet.
+  target.jQuery19104 = { view: { relay: { dropOver: function () {} } } };
   const rel = PT.sheets.probeDropRelay();
+  check("it walks own properties whatever they're named",
+    rel.rootsFound.some(p => /jQuery19104/.test(p)), JSON.stringify(rel.rootsFound));
+  check("and finds a relay reached only through one",
+    rel.found.some(f => f.what === "relay.dropOver" && /jQuery19104/.test(f.at)),
+    JSON.stringify(rel.found.map(f => f.at)));
   check("it finds the relay's dropOver",
     rel.found.some(f => f.what === "relay.dropOver"), JSON.stringify(rel.found));
   check("it finds compendiumDropData and shows its shape",
