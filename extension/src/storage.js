@@ -256,6 +256,7 @@
   // game can re-initialise cleanly. Used to clear the duplicate sets created
   // by the pre-fix build. Reload the page as DM afterwards.
   PT.store.wipeAll = function () {
+    if (!window.is_gm) { PT.log("wipeAll: DM only"); return 0; }
     var doomed = ptHandoutsByName();
     PT.log("wiping " + doomed.length + " PT- handout(s)…");
     doomed.forEach(function (h) { try { h.destroy(); } catch (e) {} });
@@ -600,6 +601,7 @@
   };
 
   PT.store.deleteBag = function (env, bagId, bagName, moveToId) {
+    if (!env.isGM) return Promise.resolve({ ok: false, err: "DM only" });
     var h = st.bagHs[bagId] || handoutById(bagId);
     if (!h) return Promise.resolve({ ok: false, err: "bag not found" });
     return PT.store.readDoc(h).then(function (doc) {
