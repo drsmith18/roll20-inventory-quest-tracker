@@ -255,7 +255,25 @@ const SHEET_GRAPH = JSON.stringify([
     full.sheet.every(r => typeof r.record === "string" && r.record.length),
     JSON.stringify(full.sheet[0] && full.sheet[0].record || "").slice(0, 120));
 
+  // weaponDump: the focused one, because a whole sheet doesn't fit in a
+  // console paste.
+  const wd = await PT.sheets.weaponDump(hero2.get("name"), "longsword");
+  check("weaponDump finds the item by a case-insensitive partial name", wd.found === 1, wd.found);
+  check("it dumps the whole subtree with values",
+    wd.items[0].subtree.length === 3 && wd.items[0].subtree.every(r => r.record.length),
+    JSON.stringify(wd.items[0].subtree.map(r => r.type)));
+  check("it reports what the item hangs off", !!wd.items[0].parent, JSON.stringify(wd.items[0].parent));
+  check("it reports the ancestry", /\(root\)$/.test(wd.items[0].ancestry), wd.items[0].ancestry);
+  check("it has a related list for attacks attached elsewhere",
+    Array.isArray(wd.items[0].related));
+  const wdMiss = await PT.sheets.weaponDump("Nobody At All", "x");
+  check("an unknown character lists the names it does know",
+    Array.isArray(wdMiss.knownNames) && wdMiss.knownNames.includes(hero2.get("name")),
+    JSON.stringify(wdMiss.knownNames));
+
   const missing = await PT.sheets.report("Nobody At All");
+  check("report also lists known names on a miss",
+    Array.isArray(missing.knownNames), JSON.stringify(missing.knownNames));
   check("an unknown character is reported, not thrown", typeof missing.sheet === "string", missing.sheet);
   check("a rejected payload shows its raw shape for diagnosis",
     !!PT.sheets.explainGraph({ datarecords: '[{"blob":"x"}]' }).rawFirst,

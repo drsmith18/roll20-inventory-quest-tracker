@@ -504,6 +504,83 @@
     return chain.join(" < ");
   }
 
+  // Console diagnostic: PT.sheets.weaponDump("Character Name", "Longsword")
+  //
+  // Everything about ONE item, in full, and nothing else. A whole sheet is
+  // far too big to paste — a real character's Item/Attack/Damage records ran
+  // past the console's truncation limit — and all that's needed to learn how
+  // the sheet wires an attack is a single weapon it built itself.
+  //
+  // Dumps three things per matching item:
+  //   subtree  - the Item and every record beneath it, values included
+  //   parent   - what it hangs off, since a top-level weapon was observed
+  //              with parentID "" rather than a container id
+  //   related  - records elsewhere on the sheet whose name starts with the
+  //              item's, which is how a weapon's extra attacks show up
+  //              ("Sunsword (Two-handed)") when the item's own childIDs
+  //              doesn't list them
+  //
+  // Read-only.
+  PT.sheets.weaponDump = function (characterName, itemName) {
+    var character = null;
+    try {
+      character = Campaign.characters.models.filter(function (c) {
+        return (c.get("name") || "") === characterName;
+      })[0] || null;
+    } catch (e) {}
+    if (!character) {
+      var names = [];
+      try { names = Campaign.characters.models.map(function (c) { return c.get("name"); }); } catch (e) {}
+      var miss = { error: "no character named " + JSON.stringify(characterName), knownNames: names };
+      console.log("[PartyTools] weaponDump:\n" + JSON.stringify(miss, null, 2));
+      return Promise.resolve(miss);
+    }
+    return prepareRead(character).then(function (p) {
+      if (!p.ok) return { error: p.err };
+      var ints = (p.doc.integrants && p.doc.integrants.integrants) || {};
+      var needle = String(itemName || "").toLowerCase();
+      var matches = Object.keys(ints).filter(function (k) {
+        return ints[k].type === "Item" && (ints[k].name || "").toLowerCase().indexOf(needle) !== -1;
+      });
+
+      var out = { version: PT.VERSION, character: characterName, item: itemName, found: matches.length, items: [] };
+      matches.slice(0, 4).forEach(function (id) {
+        var rec = ints[id];
+        var ids = subtreeIds(ints, id) || [id];
+        var inSubtree = {};
+        ids.forEach(function (i) { inSubtree[i] = true; });
+        var parent = ints[rec.parentID];
+        out.items.push({
+          id: id,
+          name: rec.name,
+          parentID: rec.parentID,
+          parent: parent
+            ? { id: rec.parentID, type: parent.type, name: parent.name }
+            : "(no parent record — top level, parentID " + JSON.stringify(rec.parentID) + ")",
+          ancestry: ancestry(ints, id),
+          subtree: ids.map(function (i) {
+            return { _id: i, type: ints[i].type, name: ints[i].name, record: JSON.stringify(ints[i]).slice(0, 1800) };
+          }),
+          related: Object.keys(ints).filter(function (k) {
+            if (inSubtree[k]) return false;
+            var n = (ints[k].name || "").toLowerCase();
+            return n.indexOf((rec.name || "").toLowerCase()) === 0;
+          }).slice(0, 12).map(function (k) {
+            return {
+              _id: k, type: ints[k].type, name: ints[k].name,
+              ancestry: ancestry(ints, k),
+              record: JSON.stringify(ints[k]).slice(0, 1800)
+            };
+          })
+        });
+      });
+      return out;
+    }).then(function (r) {
+      console.log("[PartyTools] weaponDump:\n" + JSON.stringify(r, null, 2));
+      return r;
+    });
+  };
+
   // Console diagnostic: PT.sheets.report("Character Name", {full: true})
   //
   // Dumps, in one paste: every bag item with its explainGraph verdict (which
@@ -549,6 +626,13 @@
         out.sheet = characterName
           ? "no character named " + JSON.stringify(characterName) + " on this client"
           : "pass a character name to also dump a sheet";
+        // Names must match exactly, and guessing one wastes a round trip —
+        // so hand back the list rather than just saying no.
+        try {
+          out.knownNames = Campaign.characters.models
+            .map(function (c) { return c.get("name"); })
+            .filter(function (n) { return n; });
+        } catch (e) {}
         return out;
       }
       return prepareRead(character).then(function (p) {

@@ -83,21 +83,35 @@ synthesising one. That carries `weaponData` (`{category, training, type}`),
 makes the sheet treat it as a weapon. **Confirmed working at the table** —
 a claimed longsword now shows as a weapon rather than a possession.
 
-**Still open:** the other four records (Attack, two Damage, Mastery on a
-longsword) are not written. Nothing in the payload says how they attach to
-the item, and inventing a wiring is the kind of guess that corrupts
-characters. Two ways forward, neither attempted yet:
+**Still open, and now the main outstanding job.** Confirmed at the table: the
+sheet does NOT derive an attack from `weaponData`. A claimed longsword shows
+as a weapon but offers no attack roll even when equipped, so the payload's
+other four records (Attack, two Damage, Mastery) have to be written.
 
-1. Add a weapon through Roll20's own sheet UI, then dump the resulting
-   integrants with `PT.sheets.report("Name")` and compare against a
-   Party-Tools-claimed one. Whatever links the sheet's Attack record to its
-   Item is the answer, and then the payload's Attack/Damage content can be
-   written into that structure.
-2. Find out whether the sheet DERIVES attacks from `weaponData` on its own.
-   If it does, there is nothing left to build — check whether a claimed
-   longsword now rolls an attack before doing any of (1).
+What a first partial dump of a real sheet showed, from a `Sunsword` the sheet
+built itself:
 
-**Do (2) first**, since it might make (1) unnecessary.
+- a top-level weapon has **`parentID: ""`** — an empty string, not a
+  container id. Items inside a container point at it normally (a Waterskin's
+  parent is a `Priest's Pack`).
+- the shape is `Item → childIDs → Attack → childIDs → Damage`.
+- Damage records carry `diceSize`, `_diceCount`, `damageType`, `critDiceSize`,
+  `ability`, `overrideCrit` — **not** the compendium's `dice: "1d8"` string.
+  So the payload's damage content needs translating into those fields, not
+  copying.
+- Attack records carry `actionType`, `attack`, `save`, `autoHit`,
+  `onHitDisplay`, `description`, plus the usual `_enabled`, `arrayPosition`,
+  `builderDisplayName`, `source`, `sourceID`, `compendiumPageID`.
+- a weapon can have SEVERAL attacks (`Sunsword`, `Sunsword (Two-handed)`,
+  `Sunsword (Finesse)`) while the Item's own `childIDs` listed only one — so
+  where the extra attacks attach is still unknown, and is the thing to settle
+  next.
+
+**Settles it:** `PT.sheets.weaponDump("Character", "Longsword")` against a
+sheet holding both a Roll20-made longsword and a Party-Tools-claimed one. It
+dumps one item's whole subtree with values, what it hangs off, and any
+same-named records living elsewhere — scoped that way because a whole-sheet
+dump overflowed the console.
 
 ---
 
