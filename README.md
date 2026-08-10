@@ -96,7 +96,33 @@ account? Tell your DM and they can file it:
 | `docs/roll20-technical-findings.md` | What was verified by inspecting Roll20 live, 8 Aug 2026 |
 | `docs/roll20-spike-brief.md` | The six make-or-break tests that were run before any code |
 | `docs/roll20-spike-findings.md` | The answers — all six spikes, with evidence |
+| `test/` | Automated tests (`npm install && npm test`) — see below |
 | `spikes/` | Throwaway console-test code from the spike phase; kept for reference |
+
+## Tests
+
+```
+npm install     # jsdom, the only dependency — the extension itself has none
+npm test
+```
+
+The tests boot the **real** extension inside jsdom against a stubbed Roll20
+campaign, so they exercise the shipped files rather than a copy of the logic.
+Two suites: `test/sheets.test.js` (character-sheet writes — the compendium
+weapon graph, taking items back off a sheet, who a player may split coins
+with) and `test/storage-init.test.js` (the DM's first run, and a player who
+opens the panel before the DM has set the game up).
+
+They take about a minute, most of it deliberate waiting on the same journal
+settling and write-verification delays the real thing uses.
+
+**What they can't tell you:** the stubs are built from
+`docs/roll20-spike-findings.md`, so a green run proves the logic is right
+*given those shapes*. It does not prove Roll20 still has those shapes. The
+compendium payload in `sheets.test.js` is a reconstruction, not a captured
+sample — confirm it against a real drop with `PT.sheets.explainGraph()`
+(snippet (a2) in `extension/src/sheets.js`) before trusting a claim onto a
+character you care about. Real play in the test game is still the gate.
 
 ## Ground rules
 
