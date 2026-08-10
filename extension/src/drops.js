@@ -59,7 +59,7 @@
     var url = "/compendium/compendium/getPages?bookName=dnd5e&pages%5B%5D=" +
       encodeURIComponent(payload.pagename) +
       "&sharedCompendium=" + window.campaign_id +
-      "&expansionId=" + payload.expansionId + "&dragDropRequest=true&_=" + Date.now();
+      "&expansionId=" + encodeURIComponent(payload.expansionId) + "&dragDropRequest=true&_=" + Date.now();
     var fallbackName = decodeURIComponent(payload.pagename).split(":").pop();
     return fetch(url, { credentials: "same-origin" })
       .then(function (r) { return r.json(); })
