@@ -162,5 +162,25 @@ const LONGSWORD = JSON.stringify([
   check("addItem still refuses an unsupported sheet",
     !(await PT.sheets.addItem(wrongSheet, { name: "X", qty: 1 })).ok);
 
+  // ---- the diagnostic ------------------------------------------------------
+  // It runs on a client in trouble, so it must not throw on anything it might
+  // meet — including a character it can't find and a payload it rejected.
+  section("the report() diagnostic:");
+  win.Campaign.characters.models = [hero2];
+  const rep = await PT.sheets.report(hero2.get("name"));
+  check("it reports the sheet's item records", Array.isArray(rep.sheet), JSON.stringify(rep.sheet).slice(0, 120));
+  check("it shows the Item, Attack and Damage records",
+    ["Item", "Attack", "Damage"].every(t => rep.sheet.some(r => r.type === t)),
+    rep.sheet.map(r => r.type).join(","));
+  check("each record carries its parent's type, for spotting misplacement",
+    rep.sheet.every(r => !!r.parentType), JSON.stringify(rep.sheet[0]));
+  check("it lists field names so a native weapon can be diffed against ours",
+    rep.sheet.every(r => typeof r.keys === "string" && r.keys.length));
+  const missing = await PT.sheets.report("Nobody At All");
+  check("an unknown character is reported, not thrown", typeof missing.sheet === "string", missing.sheet);
+  check("a rejected payload shows its raw shape for diagnosis",
+    !!PT.sheets.explainGraph({ datarecords: '[{"blob":"x"}]' }).rawFirst,
+    JSON.stringify(PT.sheets.explainGraph({ datarecords: '[{"blob":"x"}]' })));
+
   report("sheets");
 })();

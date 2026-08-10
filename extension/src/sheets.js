@@ -386,28 +386,114 @@
   // parser and the S2/S3 findings rather than from a captured sample, so this
   // is how you confirm it against a real compendium item in a test game
   // BEFORE trusting a claim onto a character you care about.
+  // The structure of a record without its contents: enough to see how a graph
+  // is wired and which fields exist, small enough to paste into a bug report,
+  // and no field VALUES beyond type and name (a dump of someone's character
+  // shouldn't need redacting before they can send it).
+  function shapeOf(rec) {
+    return {
+      _id: rec._id || rec.id,
+      type: rec.type,
+      name: rec.name,
+      parentID: rec.parentID,
+      childIDs: rec.childIDs,
+      keys: Object.keys(rec).sort().join(",")
+    };
+  }
+
   PT.sheets.explainGraph = function (item) {
     var dr = item && item.datarecords;
     if (!dr) return { graph: false, why: "this item has no compendium payload (manual, name-only, or obscured)" };
     var payloads = payloadsOf(dr);
     if (!payloads) {
       var raw = PT.tryJson(dr);
+      // On rejection, show the raw structure too — the whole point of this
+      // diagnostic is to reveal a payload shape that differs from the one
+      // buildGraph was written against, and "it was rejected" alone doesn't.
       return {
         graph: false,
         why: !Array.isArray(raw)
           ? "the payload isn't a JSON array"
           : "a record was unparseable, had no _id/id, had no string type, or there were more than " + MAX_GRAPH_RECORDS,
-        rawCount: Array.isArray(raw) ? raw.length : null
+        rawCount: Array.isArray(raw) ? raw.length : null,
+        rawKeys: Array.isArray(raw) && raw[0] && typeof raw[0] === "object" ? Object.keys(raw[0]).join(",") : null,
+        rawFirst: Array.isArray(raw) ? JSON.stringify(raw[0]).slice(0, 600) : String(dr).slice(0, 600)
       };
     }
-    var types = payloads.map(function (p) { return p.type; });
     var built = buildGraph(dr, "diagnostic-parent", 1);
     return {
       graph: !!built,
       records: payloads.length,
-      types: types,
+      types: payloads.map(function (p) { return p.type; }),
+      shape: payloads.map(shapeOf),
       why: built ? "would rebuild in full" : "no single Item root, a child link pointing outside the payload, or malformed childIDs"
     };
+  };
+
+  // Console diagnostic: PT.sheets.report("Character Name")
+  //
+  // Answers the question "why did my longsword land as a possession?" in one
+  // paste, because there are two completely different causes and the fix
+  // differs: either the compendium payload was REJECTED and we wrote a plain
+  // item (look at bagItems[].verdict), or the graph was written faithfully
+  // and the sheet still doesn't consider it a weapon (compare `sheet` below
+  // against the same weapon added through Roll20's own sheet UI — whatever
+  // differs is what makes a weapon a weapon).
+  //
+  // Read-only. Dumps structure and field NAMES, not values.
+  PT.sheets.report = function (characterName) {
+    var out = { version: PT.VERSION, character: characterName || null };
+    var character = null;
+    try {
+      character = Campaign.characters.models.filter(function (c) {
+        return (c.get("name") || "") === characterName;
+      })[0] || null;
+    } catch (e) {}
+
+    var bagsP = (PT.store && PT.store.snapshot)
+      ? PT.store.snapshot(PT.envInfo)
+      : Promise.resolve(null);
+
+    return bagsP.then(function (snap) {
+      out.bagItems = [];
+      ((snap && snap.bags) || []).forEach(function (b) {
+        (b.doc.items || []).forEach(function (it) {
+          out.bagItems.push({
+            bag: b.doc.name,
+            name: it.name,
+            hasPayload: !!it.datarecords,
+            verdict: PT.sheets.explainGraph(it)
+          });
+        });
+      });
+      if (!character) {
+        out.sheet = characterName
+          ? "no character named " + JSON.stringify(characterName) + " on this client"
+          : "pass a character name to also dump a sheet";
+        return out;
+      }
+      return prepareRead(character).then(function (p) {
+        if (!p.ok) { out.sheet = "could not read: " + p.err; return out; }
+        var ints = (p.doc.integrants && p.doc.integrants.integrants) || {};
+        out.sheet = Object.keys(ints).filter(function (k) {
+          var t = ints[k] && ints[k].type;
+          // Everything an item can be made of. Features, spells and the rest
+          // of the character are not our business and stay out of the dump.
+          return t === "Item" || t === "Attack" || t === "Damage";
+        }).map(function (k) {
+          var rec = ints[k];
+          var parent = ints[rec.parentID];
+          var s = shapeOf(rec);
+          s.parentType = parent ? parent.type : "(not an integrant — a sheet root)";
+          s.parentName = parent ? parent.name : null;
+          return s;
+        });
+        return out;
+      });
+    }).then(function (r) {
+      console.log("[PartyTools] report:\n" + JSON.stringify(r, null, 2));
+      return r;
+    });
   };
 
   // ---- reading items back off a sheet ---------------------------------------
@@ -624,17 +710,15 @@ window.PartyTools.sheets.controlledBy({ isGM: true, playerId: null })
   .map(function (c) { return c.get("name") + " [" + c.get("charactersheetname") + "]"; });
 */
 //
-// (a2) *** RUN THIS FIRST, IN A TEST GAME *** Drag a Longsword (or any
-//      weapon) from the compendium into a bag, then check that its payload
-//      graph is one Party Tools can rebuild. Read-only; changes nothing:
+// (a2) *** THE ONE TO RUN WHEN AN ITEM LANDS WRONG *** Read-only.
+//
+//      Set-up that makes the output conclusive: on the character you name,
+//      add a longsword through ROLL20'S OWN sheet UI (its compendium/add
+//      button), and claim a longsword from a bag with Party Tools. Then both
+//      are on the same sheet and the dump shows what differs between a
+//      weapon the sheet made and one we made.
 /*
-window.PartyTools.store.snapshot(window.PartyTools.envInfo).then(function (snap) {
-  snap.bags.forEach(function (b) {
-    (b.doc.items || []).forEach(function (it) {
-      console.log(it.name, window.PartyTools.sheets.explainGraph(it));
-    });
-  });
-});
+window.PartyTools.sheets.report("Spike Warm");
 */
 //
 // (b) Read a named character's coin purse (read-only, safe to run any time):
