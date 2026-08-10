@@ -70,6 +70,54 @@
     });
   };
 
+  PT.sheets.PARTY_TAG = "party";
+
+  // Roll20's journal tags. The field is a string; observed as a JSON array
+  // ('["party","npc"]') but tolerant of a plain comma list, because the format
+  // is inferred rather than documented. Anything unparseable means "no tags"
+  // — never an exception, and never a guess that widens what a player sees.
+  function tagsOf(character) {
+    var raw = character.get("tags");
+    if (!raw) return [];
+    var list = PT.tryJson(raw);
+    if (!Array.isArray(list)) list = String(raw).split(",");
+    return list
+      .filter(function (t) { return typeof t === "string"; })
+      .map(function (t) { return t.trim().toLowerCase(); })
+      .filter(function (t) { return t; });
+  }
+  PT.sheets.hasPartyTag = function (character) {
+    return tagsOf(character).indexOf(PT.sheets.PARTY_TAG) !== -1;
+  };
+
+  // Characters a PLAYER may reasonably hand coins or items to: the party.
+  //
+  // Campaign.characters on a player's client is NOT what that player can see
+  // — Roll20 ships the whole character list (names included) and withholds
+  // only the bodies. Listing it raw leaked every DM-only NPC's name into the
+  // coin-split recipient picker, which is both a spoiler and a nonsense
+  // choice: you could hand a share to a character you have never met.
+  //
+  // The rule: a character counts as party if some player controls it
+  // (controlledby non-empty — NOT just the current player, since splitting
+  // with the rest of the table is the entire point), or if the DM has opted
+  // it in with the "party" journal tag, which is how an NPC hireling or a
+  // shared mount joins the list. Everything else is invisible to players.
+  // The GM sees all of it, as they do everywhere else.
+  PT.sheets.partyVisible = function (env) {
+    var chars = Campaign.characters.models.filter(function (c) {
+      if (!c.get("name")) return false;
+      if (env && env.isGM) return true;
+      var cb = (c.get("controlledby") || "").trim();
+      if (cb) return true;
+      return PT.sheets.hasPartyTag(c);
+    });
+    return chars.sort(function (a, b) {
+      var an = a.get("name"), bn = b.get("name");
+      return an < bn ? -1 : an > bn ? 1 : 0;
+    });
+  };
+
   // ---- lazy load --------------------------------------------------------------
   // Attach BackboneFirebase (only if not already attached) and poll until the
   // attribs collection has arrived AND the "store" attribute is among them.
@@ -220,9 +268,261 @@
   };
 
   // ---- items --------------------------------------------------------------
-  // item: {name, qty, description, weight, cost, rarity} — our stored
-  // inventory shape. Creates one plain Item record (no attack/damage graph)
-  // and registers it under an existing top-level item's parent.
+  // A compendium drop stores `data-datarecords` verbatim (drops.js) — the
+  // Beacon payload graph this sheet itself consumes: the Item record plus its
+  // parent-linked Attack and Damage records. Claiming used to ignore it and
+  // synthesise one bare Item, which is why a longsword arrived on the sheet as
+  // a possession with no attack, no damage dice and no properties.
+  //
+  // This rebuilds that graph onto the character. Every id is remapped to a
+  // fresh one (the compendium's ids are not ours to reuse, and the same item
+  // claimed twice must not collide), parent/child links are rewritten to
+  // match, and the graph's root is re-rooted onto the character's own item
+  // parent. Everything else in each record is carried over untouched — that
+  // is where the weapon data lives, and we do not need to understand a field
+  // to preserve it.
+  //
+  // Anything about the payload that does not match this understanding —
+  // unparseable, no single Item root, implausibly large, a record without an
+  // id — returns null, and the caller falls back to the plain-item write.
+  // Refusing to guess is the house rule for sheet writes (see the version
+  // gate above); a half-understood graph in a real character is not worth it.
+  var MAX_GRAPH_RECORDS = 40;
+
+  // Register a new record in its parent's child list, if the parent is itself
+  // an integrant (a character-root parent isn't, and needs no update).
+  // childIDs is a STRING holding a JSON array — parse, push, re-stringify.
+  // Returns false if the parent's list is malformed, which means refuse.
+  function registerWithParent(ints, parentId, childId) {
+    if (!ints[parentId]) return true;
+    var kids;
+    try { kids = JSON.parse(ints[parentId].childIDs || "[]"); }
+    catch (e) { return false; }
+    if (!Array.isArray(kids)) return false;
+    kids.push(childId);
+    ints[parentId].childIDs = JSON.stringify(kids);
+    return true;
+  }
+
+  function payloadsOf(datarecords) {
+    var raw = PT.tryJson(datarecords || "");
+    if (!Array.isArray(raw) || !raw.length) return null;
+    var out = [];
+    for (var i = 0; i < raw.length; i++) {
+      var p = raw[i] && typeof raw[i].payload === "string" ? PT.tryJson(raw[i].payload) : null;
+      if (!p || typeof p !== "object" || typeof p.type !== "string") return null;
+      var id = p._id || p.id;
+      if (!id || typeof id !== "string") return null;
+      out.push(p);
+    }
+    return out.length && out.length <= MAX_GRAPH_RECORDS ? out : null;
+  }
+
+  // childIDs is a STRING holding a JSON array on the sheet. The compendium
+  // payload is documented as the same shape, but accept a real array too
+  // rather than lose a graph to a format difference.
+  function childIdsOf(rec) {
+    var raw = rec.childIDs;
+    if (Array.isArray(raw)) return raw.slice();
+    if (typeof raw !== "string" || !raw) return [];
+    var list = PT.tryJson(raw);
+    return Array.isArray(list) ? list : null;   // null = malformed, bail out
+  }
+
+  // Returns {records: {newId -> record}, rootId} or null to fall back.
+  function buildGraph(datarecords, parentId, qty) {
+    var payloads = payloadsOf(datarecords);
+    if (!payloads) return null;
+
+    var byOldId = {};
+    payloads.forEach(function (p) { byOldId[p._id || p.id] = p; });
+
+    // A root is a record whose parent is outside this payload — on the
+    // compendium side that is the page itself. Exactly one is expected, and
+    // it must be the Item; anything else means we are reading a shape we
+    // don't understand.
+    var roots = payloads.filter(function (p) {
+      var parent = p.parentID;
+      return !parent || !byOldId[parent];
+    });
+    if (roots.length !== 1 || roots[0].type !== "Item") return null;
+
+    var newIdOf = {};
+    payloads.forEach(function (p) { newIdOf[p._id || p.id] = PT.uid(); });
+
+    var records = {};
+    for (var i = 0; i < payloads.length; i++) {
+      var src = payloads[i];
+      var oldId = src._id || src.id;
+      var rec = JSON.parse(JSON.stringify(src));
+      delete rec.id;                       // the sheet keys on _id alone
+      rec._id = newIdOf[oldId];
+      rec.parentID = src === roots[0] ? parentId : newIdOf[src.parentID];
+
+      var kids = childIdsOf(src);
+      if (kids === null) return null;
+      // A child link pointing outside the payload cannot be honoured — the
+      // record it names is not coming with us.
+      var mapped = [];
+      for (var k = 0; k < kids.length; k++) {
+        var kid = kids[k];
+        if (typeof kid !== "string") return null;
+        if (!newIdOf[kid]) return null;
+        mapped.push(newIdOf[kid]);
+      }
+      rec.childIDs = JSON.stringify(mapped);
+      records[rec._id] = rec;
+    }
+
+    var rootRec = records[newIdOf[roots[0]._id || roots[0].id]];
+    rootRec.quantity = qty;
+    if (!rootRec.createdTime) rootRec.createdTime = Date.now();
+    return { records: records, rootId: rootRec._id };
+  }
+
+  // Console diagnostic: PT.sheets.explainGraph(item) — says whether a stored
+  // item's compendium payload will rebuild as a full weapon graph, and if not,
+  // which check rejected it. The graph shape is taken from the drop-time
+  // parser and the S2/S3 findings rather than from a captured sample, so this
+  // is how you confirm it against a real compendium item in a test game
+  // BEFORE trusting a claim onto a character you care about.
+  PT.sheets.explainGraph = function (item) {
+    var dr = item && item.datarecords;
+    if (!dr) return { graph: false, why: "this item has no compendium payload (manual, name-only, or obscured)" };
+    var payloads = payloadsOf(dr);
+    if (!payloads) {
+      var raw = PT.tryJson(dr);
+      return {
+        graph: false,
+        why: !Array.isArray(raw)
+          ? "the payload isn't a JSON array"
+          : "a record was unparseable, had no _id/id, had no string type, or there were more than " + MAX_GRAPH_RECORDS,
+        rawCount: Array.isArray(raw) ? raw.length : null
+      };
+    }
+    var types = payloads.map(function (p) { return p.type; });
+    var built = buildGraph(dr, "diagnostic-parent", 1);
+    return {
+      graph: !!built,
+      records: payloads.length,
+      types: types,
+      why: built ? "would rebuild in full" : "no single Item root, a child link pointing outside the payload, or malformed childIDs"
+    };
+  };
+
+  // ---- reading items back off a sheet ---------------------------------------
+  // Every Item record on the sheet, including the contents of containers (a
+  // torch inside an Explorer's Pack is an Item whose parent is an Item). The
+  // parent's name comes along so the UI can say where something lives, since
+  // "Torch" alone is ambiguous when three packs each hold one.
+  PT.sheets.listItems = function (character) {
+    return prepareRead(character).then(function (p) {
+      if (!p.ok) return { ok: false, err: p.err };
+      var ints = (p.doc.integrants && p.doc.integrants.integrants) || {};
+      var items = Object.keys(ints).filter(function (k) {
+        return ints[k] && ints[k].type === "Item" && (ints[k].name || "").trim();
+      }).map(function (k) {
+        var r = ints[k];
+        var parent = ints[r.parentID];
+        return {
+          id: k,
+          name: r.name,
+          qty: Number(r.quantity) || 1,
+          description: r.description || "",
+          weight: r.weight,
+          cost: r.cost || "",
+          rarity: r.rarity || "",
+          container: parent && parent.type === "Item" ? parent.name : null
+        };
+      });
+      items.sort(function (a, b) { return a.name < b.name ? -1 : a.name > b.name ? 1 : 0; });
+      return { ok: true, items: items };
+    });
+  };
+
+  // Walks a record and everything beneath it. Returns null on a malformed
+  // childIDs anywhere in the subtree, or if the graph loops back on itself.
+  function subtreeIds(ints, rootId) {
+    var out = [], seen = {}, queue = [rootId];
+    while (queue.length) {
+      var id = queue.shift();
+      if (seen[id]) continue;              // a cycle, or a shared child
+      seen[id] = true;
+      var rec = ints[id];
+      if (!rec) continue;
+      out.push(id);
+      if (out.length > MAX_GRAPH_RECORDS) return null;
+      var kids = childIdsOf(rec);
+      if (kids === null) return null;
+      queue = queue.concat(kids);
+    }
+    return out;
+  }
+
+  // Take an item OFF a sheet, for depositing into a bag: the reverse of
+  // addItem. Removes `qty` (decrementing the stack, or deleting the record
+  // and everything under it when the whole stack goes) and hands back an
+  // inventory-shaped item carrying the removed subtree as `datarecords` — the
+  // same format a compendium drop stores, so a deposited weapon can be
+  // claimed again later with its attack and damage intact.
+  //
+  // Sheet-first, like claiming: the caller adds to the bag only once this
+  // reports ok, so a failure here leaves the character untouched rather than
+  // duplicating the item into the party's inventory.
+  PT.sheets.takeItem = function (character, itemId, qty) {
+    return prepareWrite(character).then(function (p) {
+      if (!p.ok) return { ok: false, err: p.err };
+      var next = JSON.parse(JSON.stringify(p.doc));
+      var ints = next.integrants && next.integrants.integrants;
+      if (!ints) return { ok: false, err: "store has no integrants; cannot read items" };
+      var rec = ints[itemId];
+      if (!rec || rec.type !== "Item") return { ok: false, err: "that item is no longer on the sheet" };
+
+      var have = Number(rec.quantity) || 1;
+      qty = Math.max(1, Math.min(Number(qty) || 1, have));
+      var wholeStack = qty >= have;
+
+      var ids = subtreeIds(ints, itemId);
+      if (!ids) return { ok: false, err: "this item's records are shaped in a way we don't understand; refusing to change the sheet" };
+
+      // Snapshot BEFORE mutating, in the payload shape buildGraph consumes.
+      var datarecords = JSON.stringify(ids.map(function (id) {
+        return { payload: JSON.stringify(ints[id]) };
+      }));
+      var taken = {
+        name: rec.name, qty: qty, description: rec.description || "",
+        weight: rec.weight, cost: rec.cost || "", rarity: rec.rarity || "",
+        datarecords: datarecords
+      };
+
+      if (wholeStack) {
+        var parent = ints[rec.parentID];
+        if (parent) {
+          var kids = childIdsOf(parent);
+          if (kids === null) return { ok: false, err: "the parent record's childIDs was not valid JSON; refusing to write" };
+          parent.childIDs = JSON.stringify(kids.filter(function (k) { return k !== itemId; }));
+        }
+        ids.forEach(function (id) { delete ints[id]; });
+      } else {
+        rec.quantity = have - qty;
+      }
+
+      return writeStore(character, p.storeAttr, next, function (doc) {
+        var bi = doc.integrants && doc.integrants.integrants;
+        if (!bi) return false;
+        if (wholeStack) return !bi[itemId];
+        return bi[itemId] && Number(bi[itemId].quantity) === have - qty;
+      }).then(function (wr) {
+        if (!wr.ok) return { ok: false, err: wr.err };
+        return { ok: true, item: taken, removedWholeStack: wholeStack };
+      });
+    });
+  };
+
+  // item: {name, qty, description, weight, cost, rarity, datarecords} — our
+  // stored inventory shape. Writes the item's full compendium graph when it
+  // has one, otherwise a single plain Item record. Either way it is placed
+  // under an existing top-level item's parent.
   PT.sheets.addItem = function (character, item) {
     return prepareWrite(character).then(function (p) {
       if (!p.ok) return { ok: false, err: p.err };
@@ -242,9 +542,33 @@
       }
       var parentId = ints[topLevel[0]].parentID;
 
-      var newId = PT.uid();
       var qty = Number(item && item.qty) || 1;
       var name = (item && item.name) || "";
+
+      // Preferred path: replay the compendium's own record graph, so a weapon
+      // lands as a weapon (attack + damage records intact) rather than as a
+      // bare possession.
+      var graph = item && item.datarecords ? buildGraph(item.datarecords, parentId, qty) : null;
+      if (graph) {
+        var newIds = Object.keys(graph.records);
+        newIds.forEach(function (id) { ints[id] = graph.records[id]; });
+        if (!registerWithParent(ints, parentId, graph.rootId)) {
+          return { ok: false, err: "parent item's childIDs was not valid JSON; refusing to write" };
+        }
+        return writeStore(character, p.storeAttr, next, function (doc) {
+          var bi = doc.integrants && doc.integrants.integrants;
+          if (!bi) return false;
+          return newIds.every(function (id) { return !!bi[id]; });
+        }).then(function (wr) {
+          if (!wr.ok) return { ok: false, err: wr.err };
+          return { ok: true, id: graph.rootId, graph: true, records: newIds.length };
+        });
+      }
+
+      // Fallback: one plain Item record. This is everything a manual item or
+      // an unresolved compendium drop has to offer, and what a compendium
+      // item degrades to if its payload doesn't match what buildGraph knows.
+      var newId = PT.uid();
       var rec = {
         _enabled: true,
         _id: newId,
@@ -271,15 +595,8 @@
         rec.weight = item.weight;
       }
 
-      // Register with the parent, if the parent is itself an integrant
-      // (a character-root parent isn't, and needs no childIDs update).
-      // childIDs is a STRING holding a JSON array — parse, push, re-stringify.
-      if (ints[parentId]) {
-        var kids;
-        try { kids = JSON.parse(ints[parentId].childIDs || "[]"); }
-        catch (e) { return { ok: false, err: "parent item's childIDs was not valid JSON; refusing to write" }; }
-        kids.push(newId);
-        ints[parentId].childIDs = JSON.stringify(kids);
+      if (!registerWithParent(ints, parentId, newId)) {
+        return { ok: false, err: "parent item's childIDs was not valid JSON; refusing to write" };
       }
 
       ints[newId] = rec;
@@ -289,7 +606,7 @@
         return !!(bi && bi[newId]);
       }).then(function (wr) {
         if (!wr.ok) return { ok: false, err: wr.err };
-        return { ok: true, id: newId };
+        return { ok: true, id: newId, graph: false, records: 1 };
       });
     });
   };
@@ -305,6 +622,19 @@
 /*
 window.PartyTools.sheets.controlledBy({ isGM: true, playerId: null })
   .map(function (c) { return c.get("name") + " [" + c.get("charactersheetname") + "]"; });
+*/
+//
+// (a2) *** RUN THIS FIRST, IN A TEST GAME *** Drag a Longsword (or any
+//      weapon) from the compendium into a bag, then check that its payload
+//      graph is one Party Tools can rebuild. Read-only; changes nothing:
+/*
+window.PartyTools.store.snapshot(window.PartyTools.envInfo).then(function (snap) {
+  snap.bags.forEach(function (b) {
+    (b.doc.items || []).forEach(function (it) {
+      console.log(it.name, window.PartyTools.sheets.explainGraph(it));
+    });
+  });
+});
 */
 //
 // (b) Read a named character's coin purse (read-only, safe to run any time):

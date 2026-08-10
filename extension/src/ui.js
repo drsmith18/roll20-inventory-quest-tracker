@@ -215,12 +215,18 @@
   }
 
   // ---- coin splitting (INV-20a..h) -------------------------------------------
-  // Named characters in this game, sorted, capped at 30 (INV-20b's "chosen
-  // subset" needs a bounded list to stay usable). The DM's test/NPC
-  // characters are included deliberately — nothing here is filtered by name.
+  // Recipient candidates, sorted, capped at 30 (INV-20b's "chosen subset"
+  // needs a bounded list to stay usable).
+  //
+  // This used to list every character in the campaign, on the reasoning that
+  // the DM's NPCs were legitimate recipients. On a PLAYER's client that was a
+  // leak: Roll20 ships the full character list to everyone and withholds only
+  // the bodies, so the picker named every unmet NPC in the game. Players now
+  // get the party (see sheets.partyVisible); the DM still sees everyone, and
+  // the free-text field below still takes any name.
   function splitCharacterNames() {
     var models = [];
-    try { models = (window.Campaign && Campaign.characters && Campaign.characters.models) || []; } catch (e) {}
+    try { models = PT.sheets.partyVisible(env) || []; } catch (e) {}
     var names = models
       .map(function (c) { return (c.get("name") || "").trim(); })
       .filter(function (n) { return n; });
@@ -251,9 +257,21 @@
         c.appendChild(PT.el("label", {}, [wholeRadio, PT.el("span", { text: "Split the whole purse (" + PT.purseLabel(purse) + ")" })]));
         c.appendChild(PT.el("label", {}, [specRadio, PT.el("span", { text: "Split a specific amount:" })]));
         c.appendChild(specWrap);
-        c.appendChild(PT.el("div", { class: "pt-note", text: "Recipients (pick at least one):" }));
+        c.appendChild(PT.el("div", {
+          class: "pt-note",
+          text: env.isGM
+            ? "Recipients (pick at least one):"
+            : "Recipients (pick at least one) — party characters only:"
+        }));
         var recipWrap = PT.el("div", { class: "pt-split-recipients" });
-        if (!chars.length) recipWrap.appendChild(PT.el("div", { class: "pt-note", text: "No named characters in this game yet — use the free-text field below." }));
+        if (!chars.length) {
+          recipWrap.appendChild(PT.el("div", {
+            class: "pt-note",
+            text: env.isGM
+              ? "No named characters in this game yet — use the free-text field below."
+              : "No party characters found. A character counts as party if a player controls it, or the DM tags it “party” in the journal. Use the free-text field below meanwhile."
+          }));
+        }
         chars.forEach(function (name) {
           recipWrap.appendChild(PT.el("label", {}, [
             PT.el("input", { type: "checkbox", "data-recipient": "1", value: name, checked: state.recipients.indexOf(name) !== -1 ? "checked" : undefined }),
@@ -508,7 +526,11 @@
     if (PT.sheets.isSupported(character)) {
       return PT.sheets.addItem(character, {
         name: item.name, qty: qty, description: item.description,
-        weight: item.weight, cost: item.cost, rarity: item.rarity
+        weight: item.weight, cost: item.cost, rarity: item.rarity,
+        // The compendium graph, when the item came from a drop that resolved.
+        // Absent on manual items, on name-only fallbacks (INV-11), and on
+        // obscured items — whose true record is deliberately not read here.
+        datarecords: item.datarecords
       }).then(function (sheetRes) {
         // Sheet write failed: STOP. Nothing about the bag changes.
         if (!sheetRes.ok) return { ok: false, err: sheetRes.err };
@@ -516,6 +538,9 @@
         // quantity (whole stack, or reduces qty).
         return removeFromBag().then(function (r) {
           if (r.ok) {
+            // Surfaced so the caller can warn when an item that HAD a
+            // compendium graph still landed as a plain possession.
+            r.graph = !!sheetRes.graph;
             PT.store.appendLog(env, env.playerName + " claimed " + qty + "× “" + item.name + "” to " + charName);
             return r;
           }
@@ -602,10 +627,121 @@
         if (!r.ok) { ui.toast("Claim failed, nothing was changed: " + r.err); ui.refresh(); return; }
         if (unsupportedClaim) {
           ui.toast("“" + item.name + "” recorded as assigned to " + character.get("name") + " — move it onto the sheet by hand.");
+        } else if (item.datarecords && r.graph === false) {
+          // It came from the compendium with a record graph, but the graph
+          // didn't match what we know how to rebuild, so it went on as a
+          // plain item. Say so — the alternative is the player quietly
+          // fighting a longsword with no attack roll.
+          ui.toast("“" + item.name + "” went onto the sheet as a plain item — its attack/damage data couldn't be rebuilt. Add the weapon from the sheet's own compendium if you need the attack.", 10000);
         }
         ui.refresh();
       });
     }, { okText: "Claim" });
+  }
+
+  // ---- deposit an item from a character sheet into a bag --------------------
+  // The reverse of claiming, and the other half of a round trip: an item
+  // taken off a sheet keeps its record graph (sheets.takeItem hands it back
+  // in the same shape a compendium drop stores), so putting a longsword in
+  // the bag and claiming it again later returns a working weapon, not a
+  // flattened possession.
+  //
+  // Sheet first, bag second — the same ordering claiming uses, for the same
+  // reason: if the bag write fails the item is off the sheet and nowhere, so
+  // that case is reported loudly rather than swallowed.
+  function depositItem(bag, character, sheetItem, qty) {
+    var charName = character.get("name");
+    return PT.sheets.takeItem(character, sheetItem.id, qty).then(function (res) {
+      if (!res.ok) return { ok: false, err: res.err };
+      return PT.store.addItem(env, bag.id, bag.doc.name, res.item).then(function (r) {
+        if (r.ok) {
+          PT.store.appendLog(env, env.playerName + " put " + qty + "× “" + res.item.name + "” from " + charName + " into “" + bag.doc.name + "”");
+          return r;
+        }
+        return { ok: false, halfDone: true, err: r.err, item: res.item };
+      });
+    });
+  }
+
+  function depositModal(bag) {
+    var chars = PT.sheets.controlledBy(env).filter(function (c) { return PT.sheets.isSupported(c); });
+    if (!chars.length) {
+      ui.toast("No character you control uses a supported sheet, so there's nothing to take items from.");
+      return;
+    }
+
+    function pickItems(character) {
+      // Reading a sheet means waiting for its attribs to load, which is why
+      // this is its own step with its own message rather than a frozen modal.
+      var loading = PT.el("div", { class: "pt-empty", text: "Reading " + character.get("name") + "’s sheet…" });
+      var listWrap = PT.el("div", { class: "pt-split-recipients" }, [loading]);
+      var state = { items: null };
+
+      modal("Put an item into “" + bag.doc.name + "” — from " + character.get("name"), function (c) {
+        c.appendChild(PT.el("div", { class: "pt-note", text: "Pick one item to move off the sheet and into the bag:" }));
+        c.appendChild(listWrap);
+        c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Quantity:" })]));
+        c.appendChild(PT.el("input", { type: "number", value: "1", min: "1", "data-f": "qty" }));
+      }, function (c) {
+        if (!state.items) { ui.toast("Still reading the sheet — try again in a moment."); return false; }
+        if (!state.items.length) return false;
+        var sel = c.querySelector("input[name=pt-deposit-item]:checked");
+        if (!sel) { ui.toast("Pick an item first."); return false; }
+        var item = state.items[parseInt(sel.value, 10)];
+        var qtyInput = c.querySelector("[data-f=qty]");
+        var qty = qtyInput ? (parseInt(qtyInput.value, 10) || 1) : 1;
+        if (qty < 1) qty = 1;
+        if (qty > item.qty) qty = item.qty;
+
+        depositItem(bag, character, item, qty).then(function (r) {
+          if (r.halfDone) {
+            ui.toast("“" + item.name + "” came OFF " + character.get("name") +
+              "’s sheet but could not be added to the bag. Add it back by hand — it is not in the party inventory.", 12000);
+            ui.refresh();
+            return;
+          }
+          if (!r.ok) { ui.toast("Nothing was changed: " + r.err); ui.refresh(); return; }
+          ui.toast("Moved " + qty + "× “" + item.name + "” into “" + bag.doc.name + "”.");
+          ui.refresh();
+        });
+      }, { okText: "Put in bag" });
+
+      PT.sheets.listItems(character).then(function (res) {
+        listWrap.textContent = "";
+        if (!res.ok) {
+          listWrap.appendChild(PT.el("div", { class: "pt-note", text: "Could not read that sheet: " + res.err }));
+          return;
+        }
+        state.items = res.items;
+        if (!res.items.length) {
+          listWrap.appendChild(PT.el("div", { class: "pt-note", text: "That sheet has no items on it." }));
+          return;
+        }
+        res.items.forEach(function (it, i) {
+          var label = it.name + (it.qty > 1 ? " ×" + it.qty : "") +
+            (it.container ? " (in " + it.container + ")" : "");
+          listWrap.appendChild(PT.el("label", {}, [
+            PT.el("input", { type: "radio", name: "pt-deposit-item", value: String(i) }),
+            PT.el("span", { text: label })
+          ]));
+        });
+      });
+    }
+
+    if (chars.length === 1) { pickItems(chars[0]); return; }
+    modal("Put an item into “" + bag.doc.name + "”", function (c) {
+      c.appendChild(PT.el("div", { class: "pt-note", text: "Take an item from which character?" }));
+      chars.forEach(function (ch, i) {
+        c.appendChild(PT.el("label", {}, [
+          PT.el("input", { type: "radio", name: "pt-deposit-char", value: String(i), checked: i === 0 ? "checked" : undefined }),
+          PT.el("span", { text: ch.get("name") })
+        ]));
+      });
+    }, function (c) {
+      var sel = c.querySelector("input[name=pt-deposit-char]:checked");
+      if (!sel) return false;
+      pickItems(chars[parseInt(sel.value, 10)]);
+    }, { okText: "Next" });
   }
 
   // ---- push a coin assignment to a character sheet (INV-20g) ----------------
@@ -706,6 +842,10 @@
     head.appendChild(PT.el("button", {
       class: "pt-iconbtn", text: "+", title: "Add an item by name",
       onclick: function () { addItemModal(bag); }
+    }));
+    head.appendChild(PT.el("button", {
+      class: "pt-iconbtn", text: "⇩", title: "Put an item from a character sheet into this bag",
+      onclick: function () { depositModal(bag); }
     }));
     if (env.isGM) {
       head.appendChild(PT.el("button", {

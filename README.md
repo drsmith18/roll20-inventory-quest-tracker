@@ -6,7 +6,7 @@ who-did-what activity log. A DM-controlled quest tracker is planned next.
 All data is stored *inside* the Roll20 campaign itself (as journal
 handouts), so there is no external server, no accounts, and nothing to host.
 
-**Status: v0.8 beta — the inventory is feature-complete and in testing at
+**Status: v0.9 beta — the inventory is feature-complete and in testing at
 the author's own table.** Not in the browser add-on stores yet, so it
 installs by hand.
 
@@ -40,7 +40,13 @@ installs by hand.
   obscure it
 - Claim an item from a bag to your own character's sheet (D&D 2024 sheets;
   anything else is recorded as assigned), and push split coin shares to a
-  sheet
+  sheet. A compendium weapon arrives as a weapon — its attack and damage
+  records come along, not just the name
+- Put items back: move an item off your character's sheet into a bag, keeping
+  its weapon data, so the round trip doesn't flatten it
+- Coin splitting only ever offers players the party — characters a player
+  controls, plus any NPC the DM tags `party` in the journal. The DM still
+  sees every character
 
 Not yet built: sub-bags, and the quest tracker. That's the current order of
 work.
