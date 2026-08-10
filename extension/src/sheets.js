@@ -419,7 +419,7 @@
   //   Item.childIDs   -> [attackId, ...]
   //   Attack.parentID -> itemId,   Attack.sourceID -> itemId, source "Item"
   //   Damage.parentID -> attackId, Damage.sourceID -> itemId, source "Item"
-  function buildAttacks(datarecords, itemId) {
+  function buildAttacks(datarecords, itemId, pageId) {
     var all = allPayloads(datarecords);
     if (!all) return null;
 
@@ -449,6 +449,7 @@
         if (!a.recordName) a.recordName = a.name;
         if (!a.shortID) a.shortID = shortId();
         if (!a.createdTime) a.createdTime = Date.now();
+        if (pageId && !a.compendiumPageID) a.compendiumPageID = pageId;
         records[a._id] = a;
         attackIds.push(a._id);
         attack = a;
@@ -475,6 +476,7 @@
         if (!d.recordName) d.recordName = d.name;
         if (!d.shortID) d.shortID = shortId();
         if (!d.createdTime) d.createdTime = Date.now();
+        if (pageId && !d.compendiumPageID) d.compendiumPageID = pageId;
         records[d._id] = d;
         damageIds.push(d._id);
       } else {
@@ -1046,6 +1048,12 @@
       if (!rec.shortID) rec.shortID = "pt" + Math.random().toString(36).slice(2, 8);
       if (!rec.createdTime) rec.createdTime = Date.now();
       if (rec._enabled === undefined) rec._enabled = true;
+      // The link back to the compendium entry. Every record on a sheet-made
+      // item carries it; ours carried none, because the id was being read at
+      // drop time only to check the lookup succeeded and then discarded.
+      if (item && item.compendiumPageID && !rec.compendiumPageID) {
+        rec.compendiumPageID = item.compendiumPageID;
+      }
 
       if (!registerWithParent(ints, parentId, newId)) {
         return { ok: false, err: "parent item's childIDs was not valid JSON; refusing to write" };
@@ -1056,7 +1064,7 @@
       // The attacks and their damage, when the payload has them. Without
       // these the sheet shows a weapon with no attack roll — an item is not a
       // weapon to the sheet just because it carries weaponData.
-      var extras = source ? buildAttacks(item.datarecords, newId) : null;
+      var extras = source ? buildAttacks(item.datarecords, newId, item.compendiumPageID) : null;
       var extraIds = [];
       if (extras && extras.attackIds.length) {
         rec.childIDs = JSON.stringify(extras.attackIds);

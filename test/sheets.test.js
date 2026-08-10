@@ -209,6 +209,28 @@ const SHEET_GRAPH = JSON.stringify([
   check("a weapon reports nothing unwritten", add.unwrittenTypes.length === 0,
     JSON.stringify(add.unwrittenTypes));
 
+  // The link back to the compendium entry. Sheet-made records all carry it;
+  // ours carried none, because drops.js read the id only to check the lookup
+  // had worked and then dropped it.
+  section("the compendium page id is carried onto the sheet:");
+  const pageChar = makeCharacter("Vex", { controlledby: "p1" });
+  const paged = await PT.sheets.addItem(pageChar, {
+    name: "Longsword", qty: 1, datarecords: LONGSWORD,
+    compendiumPageID: "66a7b0b4b69ce10013cfb325"
+  });
+  const pInts = integrantsOf(pageChar);
+  check("the item record carries it",
+    pInts[paged.id].compendiumPageID === "66a7b0b4b69ce10013cfb325",
+    pInts[paged.id].compendiumPageID);
+  const pAttack = pInts[JSON.parse(pInts[paged.id].childIDs)[0]];
+  check("its attacks carry it too",
+    pAttack.compendiumPageID === "66a7b0b4b69ce10013cfb325", pAttack.compendiumPageID);
+  check("and its damage records",
+    pInts[JSON.parse(pAttack.childIDs)[0]].compendiumPageID === "66a7b0b4b69ce10013cfb325");
+  check("an item with no page id is still written fine",
+    integrantsOf(armourChar)[armour.id].compendiumPageID === undefined,
+    integrantsOf(armourChar)[armour.id].compendiumPageID);
+
   // ---- a sheet-sourced graph still rebuilds in full ------------------------
   section("a graph WITH ids (from takeItem) still rebuilds in full:");
   const heroG = makeCharacter("Vex", { controlledby: "p1" });

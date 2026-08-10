@@ -480,6 +480,7 @@
         name: resolvedItem.name, description: resolvedItem.description, cost: resolvedItem.cost,
         weight: resolvedItem.weight, rarity: resolvedItem.rarity, itemType: resolvedItem.itemType,
         pagename: resolvedItem.pagename, expansionId: resolvedItem.expansionId, datarecords: resolvedItem.datarecords,
+        compendiumPageID: resolvedItem.compendiumPageID,
         hiddenAt: Date.now(), hiddenBy: env.playerName
       };
       // Truth to the GM index FIRST; the bag write only happens after that
@@ -530,7 +531,8 @@
         // The compendium graph, when the item came from a drop that resolved.
         // Absent on manual items, on name-only fallbacks (INV-11), and on
         // obscured items — whose true record is deliberately not read here.
-        datarecords: item.datarecords
+        datarecords: item.datarecords,
+        compendiumPageID: item.compendiumPageID
       }).then(function (sheetRes) {
         // Sheet write failed: STOP. Nothing about the bag changes.
         if (!sheetRes.ok) return { ok: false, err: sheetRes.err };

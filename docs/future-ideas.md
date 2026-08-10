@@ -161,6 +161,52 @@ character's **class**, not from the item, so it is not ours to write.)
 
 ---
 
+## Let the SHEET build the item, instead of writing records ourselves
+
+**Asked at the table, Aug 2026:** "why not just add it by compendium ID and
+let the sheet do the work?"
+
+It is the right question, and the honest answer is that the alternative was
+never evaluated. S2 went straight to writing `store.integrants` directly and
+logged the consequence as a residual risk — *"the 2024 sheet write bypasses
+the Beacon sheet's own code path"* — but nothing tried to drive that path
+instead. Everything since (the weapon graph, the attack wiring, and whatever
+armour turns out to need) is the cost of reimplementing, record by record,
+something the sheet already knows how to do from a page id.
+
+**Why it isn't a trivial swap.** The Beacon sheet runs sandboxed — there's a
+`sheetsandboxworker.js` and the traffic goes over `postMessage`, so its
+functions can't simply be called from a content script. No "add compendium
+page X to character Y" entry point is known. It may not be reachable at all.
+
+**What might make it reachable, in rough order of promise:**
+
+1. Roll20's own compendium drop onto a character sheet does exactly this job.
+   `drops.js` already enables and disables Roll20's canvas droppable, so
+   there is precedent for driving that machinery — the question is whether a
+   drop can be synthesised at the sheet's drop target without the sheet being
+   open and focused.
+2. Whether the sheet reacts to a record appearing with only a
+   `compendiumPageID` set, and enriches it itself. Cheap to test now that
+   v0.9.8 writes that field.
+3. The `postMessage` protocol between the VTT and the sheet sandbox, read off
+   the wire. Most work, most fragile, and it would be undocumented API on top
+   of undocumented API.
+
+**Worth doing before the next item type is built by hand.** If (1) or (2)
+works, armour, magic items and containers all stop being separate problems.
+If neither does, at least the per-type approach is a considered choice rather
+than an unexamined default.
+
+**Related and now fixed:** the drop was discarding the compendium page id. It
+read `rec.id` from the lookup, used it to decide the item had resolved, and
+threw it away — so items Party Tools wrote had no link back to the compendium
+at all, where every sheet-made record carries one. v0.9.8 stores it and
+writes it onto the Item, its Attacks and their Damage. (It is stripped from
+obscured items along with `pagename`, since a page id names an item exactly.)
+
+---
+
 ## Item types other than weapons — armour, containers, magic items
 
 **Asked at the table, Aug 2026:** "will armour have similar issues?"

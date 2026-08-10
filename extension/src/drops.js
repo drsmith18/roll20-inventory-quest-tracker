@@ -78,6 +78,12 @@
           resolved: true,
           name: rec.name,
           qty: 1,
+          // The compendium page id. Every record on a sheet-made item carries
+          // it — Item, Attack and Damage alike — and it is how the sheet ties
+          // a record back to its compendium entry. It was being validated
+          // above and then dropped, so items Party Tools wrote had no link
+          // back to the compendium at all.
+          compendiumPageID: rec.id,
           description: (itemPayload && itemPayload.description) || "",
           weight: itemPayload && itemPayload.weight != null ? itemPayload.weight : (parseFloat(d.Weight) || null),
           cost: (itemPayload && itemPayload.cost) || d.Cost || "",

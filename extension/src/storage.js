@@ -856,6 +856,7 @@
         name: it.name, description: it.description, cost: it.cost,
         weight: it.weight, rarity: it.rarity, itemType: it.itemType,
         pagename: it.pagename, expansionId: it.expansionId, datarecords: it.datarecords,
+        compendiumPageID: it.compendiumPageID,
         hiddenAt: Date.now(), hiddenBy: env.playerName
       };
       // Splitting one off means the obscured thing is a NEW item, so the
@@ -890,6 +891,9 @@
           delete it2.description; delete it2.cost; delete it2.weight;
           delete it2.rarity; delete it2.itemType; delete it2.pagename;
           delete it2.expansionId; delete it2.datarecords;
+          // A compendium page id names the item exactly — the same leak as
+          // pagename, so it goes with the rest.
+          delete it2.compendiumPageID;
         }).then(function (r) {
           if (!r.ok) {
             return { ok: false, err: "true item data was saved, but the bag update failed — the item is NOT yet obscured. Try again." };
@@ -949,6 +953,7 @@
         it.pagename = truth.pagename;
         it.expansionId = truth.expansionId;
         it.datarecords = truth.datarecords;
+        it.compendiumPageID = truth.compendiumPageID;
         delete it.obscured;   // legacy records written before v0.8.3 carried this
       }).then(function (r) {
         if (!r.ok) {
