@@ -338,13 +338,13 @@ properly. Ten items, eight distinct payload shapes:
 | `Item+Attunement+Attack+Damage+Attack+Damage+Action+Resource+Healing+Action+Resource` | Acheron Longsword | **partly** — it swings, but loses its magic |
 | no payload | two amulets | n/a (name-only fallback) |
 
-Record types with rules: `Item`, `Attack`, `Damage` (v0.9.6),
-`Armor Class`, `Defense` (v0.9.15), `Attunement`, `Ability Score` (v0.9.16).
+**Every record type seen in the survey now has a rule** (v0.9.17):
+`Item`, `Attack`, `Damage`, `Armor Class`, `Defense`, `Attunement`,
+`Ability Score`, `Action`, `Resource`, `Healing`.
 
-Still needing rules: **`Action`, `Resource`, `Healing`** — activatable magic
-item abilities. The Acheron Longsword is the only surveyed item that has
-them; it already swings and is now attunable, but its two usable powers are
-not written.
+Nothing in the surveyed bag claims incomplete. New types will turn up
+eventually — a claim names any it cannot write, and `survey()` lists them
+across every bag at once, so they surface as a report rather than a mystery.
 
 ### The trap: order is NOT stable outside Attack/Damage
 
@@ -461,6 +461,47 @@ Attunement read `_attuned: true`; a claim writes `false`. Attunement slots
 are limited to three, and silently spending one is worse than the player
 ticking a box. The item's effects switch on when they attune it, which is
 also the correct rule.
+
+### Magic weapon abilities: the full chain, captured (Aug 2026)
+
+The Acheron Longsword — eleven records, and the shape settles the question of
+where abilities live versus where attacks live. **They differ:**
+
+```
+Item
+├─ Attunement                     childIDs: [Action, Action]
+│   ├─ Action "Dark Blessing"     parentID: ATTUNEMENT
+│   │    source:"Item", sourceID:<itemId>, actionType:"Action"
+│   │    relations: {<resourceId>: "uses"}    <- generated, not in the payload
+│   │    ├─ Resource              parentID: ACTION  value/maxValueFormula/recoveryRate
+│   │    └─ Healing               parentID: ACTION  _bonus, _diceCount, diceSize, isTemp
+│   └─ Action "Disheartening Strike"  actionType: "Free Action"
+│        └─ Resource              parentID: ACTION
+├─ Attack                         parentID: ITEM   <- NOT the attunement
+└─ Attack                         parentID: ITEM
+```
+
+- **Abilities hang off the attunement; attacks hang off the item.** Both were
+  in the same payload, so this had to be read rather than inferred.
+- `Resource` and `Healing` belong to the `Action` they follow — this pair IS
+  grouped by order, like Damage under an Attack. (Armour was not. Ability
+  Score nested. There is no general rule; each type was read off a sheet.)
+- Two transformations the payload does not show:
+  - **`relations: {<resourceId>: "uses"}`** on the Action must be GENERATED,
+    since the resource id is ours. Without it the ability would not spend its
+    use.
+  - **Healing's `diceCount` becomes `_diceCount`** on the sheet.
+
+### Two harmless inconsistencies observed, deliberately left alone
+
+The class-granted longsword's Attack and Damage records carry
+`cascades:{itemId:"[\"Equip\"]"}`, `source:"Item"` and `sourceID`. The
+compendium-dropped Acheron's Attacks have `source`/`sourceID` but **no
+cascades**, and its Damage records have `source:""` and no `sourceID` at all.
+Both forms exist on real sheets and both work, so what we write (the
+class-granted form) is left as it is — attacks are confirmed working in play,
+and churning that to match a second valid form would risk a regression for no
+gain.
 
 ### The two dumps for each
 

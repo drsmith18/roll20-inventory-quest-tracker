@@ -70,6 +70,23 @@ const AMULET = JSON.stringify([
   { payload: JSON.stringify({ type: "Ability Score", ability: "Constitution", calculation: "Minimum", valueFormula: { flatValue: 19 } }) }
 ]);
 
+// Captured with payloadDump (Aug 2026). Eleven records: a magic weapon whose
+// attacks hang off the ITEM while its abilities hang off the ATTUNEMENT.
+const ACHERON = JSON.stringify([
+  { payload: JSON.stringify({ type: "Item", name: "Acheron Longsword", weight: 3, properties: ["Versatile"], rarity: "Rare",
+    weaponData: { category: "Melee", training: "Martial", type: "Longsword" }, equipData: { equippable: true } }) },
+  { payload: JSON.stringify({ type: "Attunement", requireEquip: true }) },
+  { payload: JSON.stringify({ type: "Attack", name: "Acheron Longsword", attack: { type: "Melee", abilityBonus: "Strength", bonus: 1 }, actionType: "Action" }) },
+  { payload: JSON.stringify({ type: "Damage", ability: "auto", bonus: 1, damageType: "Slashing", diceSize: "d8" }) },
+  { payload: JSON.stringify({ type: "Attack", name: "Acheron Longsword (Two-handed)", attack: { type: "Melee", abilityBonus: "Strength", bonus: 1 }, actionType: "Action" }) },
+  { payload: JSON.stringify({ type: "Damage", ability: "auto", bonus: 1, damageType: "Slashing", diceSize: "d10" }) },
+  { payload: JSON.stringify({ type: "Action", name: "Dark Blessing (Acheron Longsword)", description: "...temporary hit points.", actionType: "Action", excludeFamilialResources: false }) },
+  { payload: JSON.stringify({ type: "Resource", name: "Dark Blessing", value: 1, maxValueFormula: { flatValue: 1 }, recoveryRate: { Other: { type: "Full" } } }) },
+  { payload: JSON.stringify({ type: "Healing", ability: "none", _bonus: 4, isTemp: true, diceCount: 1, diceSize: "d4" }) },
+  { payload: JSON.stringify({ type: "Action", name: "Disheartening Strike (Acheron Longsword)", description: "...unsettling dread.", actionType: "Free Action", excludeFamilialResources: false }) },
+  { payload: JSON.stringify({ type: "Resource", name: "Disheartening Strike", value: 1, maxValueFormula: { flatValue: 1 }, recoveryRate: { Other: { type: "Full" } } }) }
+]);
+
 // Sheet-sourced: ids and links present, so the full graph can be rewired.
 const SHEET_GRAPH = JSON.stringify([
   { payload: JSON.stringify({ _id: "ls", type: "Item", name: "Longsword", quantity: 1, parentID: "inventory", childIDs: '["atk"]', weight: 3, cost: "15 GP", weaponData: { category: "Melee" }, equipData: { equippable: true } }) },
@@ -299,6 +316,95 @@ const SHEET_GRAPH = JSON.stringify([
     lInts[JSON.parse(lInts[loose.id].childIDs)[0]].parentID === loose.id);
   check("and is not counted as unwritten", loose.unwritten === 0, loose.unwritten);
 
+  // The full magic weapon. Asserted against an Acheron Longsword that Roll20
+  // itself added (weaponDump, Aug 2026) — attacks on the item, abilities
+  // under the attunement, resources under their action.
+  section("a magic weapon: attacks on the item, abilities under the attunement:");
+  const magicChar = makeCharacter("Vex", { controlledby: "p1" });
+  const ach = await PT.sheets.addItem(magicChar, {
+    name: "Acheron Longsword", qty: 1,
+    datarecords: ACHERON, compendiumPageID: "65e1b9f5c693a3001280987a"
+  });
+  check("the write succeeds", ach.ok, ach.err);
+  check("all eleven records are written", ach.records === 11, ach.records);
+  check("nothing is left unwritten", ach.unwritten === 0, JSON.stringify(ach.unwrittenTypes));
+
+  const gInts = integrantsOf(magicChar);
+  const gItem = gInts[ach.id];
+  const gKids = JSON.parse(gItem.childIDs).map(id => gInts[id]);
+  check("the item's children are the attunement and BOTH attacks",
+    gKids.length === 3 && gKids.filter(r => r.type === "Attack").length === 2 &&
+    gKids.filter(r => r.type === "Attunement").length === 1,
+    gKids.map(r => r.type).join(","));
+  check("attacks parent to the ITEM, not the attunement",
+    gKids.filter(r => r.type === "Attack").every(r => r.parentID === ach.id));
+
+  const gAttune = gKids.find(r => r.type === "Attunement");
+  const actions = JSON.parse(gAttune.childIDs).map(id => gInts[id]);
+  check("both abilities hang off the ATTUNEMENT", actions.length === 2, actions.length);
+  check("and they are Actions", actions.every(r => r.type === "Action"),
+    actions.map(r => r.type).join(","));
+  const dark = actions.find(r => /Dark Blessing/.test(r.name));
+  const dis = actions.find(r => /Disheartening/.test(r.name));
+  check("an Action carries source and sourceID, like an Attack",
+    dark.source === "Item" && dark.sourceID === ach.id, dark.source + "/" + dark.sourceID);
+  check("actionType survives — one is a Free Action",
+    dark.actionType === "Action" && dis.actionType === "Free Action",
+    dark.actionType + "/" + dis.actionType);
+  check("recordName follows the sheet's pattern",
+    dark.recordName === "Acheron Longsword Dark Blessing Action", dark.recordName);
+  check("including the Free Action variant",
+    dis.recordName === "Acheron Longsword Disheartening Strike Free Action", dis.recordName);
+
+  const darkKids = JSON.parse(dark.childIDs).map(id => gInts[id]);
+  const res = darkKids.find(r => r.type === "Resource");
+  const heal = darkKids.find(r => r.type === "Healing");
+  check("the Resource and Healing are children of their ACTION",
+    darkKids.length === 2 && res.parentID === dark._id && heal.parentID === dark._id,
+    darkKids.map(r => r.type).join(","));
+  check("the resource's uses survived",
+    res.value === 1 && res.maxValueFormula.flatValue === 1, JSON.stringify(res.maxValueFormula));
+  check("its recovery rate survived",
+    res.recoveryRate && res.recoveryRate.Other.type === "Full", JSON.stringify(res.recoveryRate));
+  // Generated, not copied: the payload has no relations, and the id is ours.
+  check("the Action declares that it USES that resource",
+    dark.relations && dark.relations[res._id] === "uses", JSON.stringify(dark.relations));
+  check("the second action points at its own resource",
+    dis.relations && dis.relations[JSON.parse(dis.childIDs)[0]] === "uses", JSON.stringify(dis.relations));
+  check("the two actions do not share a resource",
+    Object.keys(dark.relations)[0] !== Object.keys(dis.relations)[0]);
+
+  // The payload sends diceCount; the sheet stores _diceCount.
+  check("healing dice count is renamed to _diceCount",
+    heal._diceCount === 1 && heal.diceCount === undefined,
+    heal._diceCount + " / " + heal.diceCount);
+  check("healing keeps its bonus, dice and temp flag",
+    heal._bonus === 4 && heal.diceSize === "d4" && heal.isTemp === true,
+    JSON.stringify([heal._bonus, heal.diceSize, heal.isTemp]));
+  check("healing is named as the sheet names it",
+    heal.name === "Acheron Longsword Dark Blessing Temp HP", heal.name);
+  check("crit fields the sheet expects are present",
+    heal.critDiceSize === "" && heal.overrideCrit === false);
+
+  // Both attacks still work exactly as the plain weapon does.
+  const gAtk = gKids.filter(r => r.type === "Attack");
+  check("each attack still has its own damage",
+    gAtk.every(a => JSON.parse(a.childIDs).length === 1));
+  check("and the +1 magic bonus survived on the attack",
+    gAtk[0].attack.bonus === 1, JSON.stringify(gAtk[0].attack));
+
+  // A Resource with no Action in front of it has nowhere to go.
+  const orphanRes = await PT.sheets.addItem(makeCharacter("Vex", { controlledby: "p1" }), {
+    name: "Odd Thing", qty: 1,
+    datarecords: JSON.stringify([
+      { payload: JSON.stringify({ type: "Item", name: "Odd Thing" }) },
+      { payload: JSON.stringify({ type: "Resource", name: "Nothing to spend" }) }
+    ])
+  });
+  check("a Resource with no Action is reported, not guessed at",
+    orphanRes.unwritten === 1 && orphanRes.unwrittenTypes.join(",") === "Resource",
+    orphanRes.unwritten + "/" + JSON.stringify(orphanRes.unwrittenTypes));
+
   // A weapon must be untouched by the armour rule.
   section("the weapon path is unaffected:");
   check("a weapon still writes 5 records with 2 attacks",
@@ -358,11 +464,11 @@ const SHEET_GRAPH = JSON.stringify([
     name: "Amulet of Health", qty: 1,
     datarecords: JSON.stringify([
       { payload: JSON.stringify({ type: "Item", name: "Amulet of Health", armorData: { ac: 16 } }) },
-      { payload: JSON.stringify({ type: "Action", name: "Invoke" }) }
+      { payload: JSON.stringify({ type: "Sense", sense: "Darkvision", range: 60 }) }
     ])
   });
   check("a type with no rule yet is named, so a bug report can point at it",
-    armour.unwritten === 1 && armour.unwrittenTypes.join(",") === "Action",
+    armour.unwritten === 1 && armour.unwrittenTypes.join(",") === "Sense",
     armour.unwritten + " / " + JSON.stringify(armour.unwrittenTypes));
   check("the item itself still lands with its own data",
     integrantsOf(armourChar)[armour.id].armorData.ac === 16,
@@ -682,7 +788,7 @@ const SHEET_GRAPH = JSON.stringify([
       // rule. Whatever that turns out to be, this is how it should read.
       { name: "Amulet of Health", datarecords: JSON.stringify([
         { payload: JSON.stringify({ type: "Item", name: "Amulet of Health" }) },
-        { payload: JSON.stringify({ type: "Action", name: "Invoke" }) }
+        { payload: JSON.stringify({ type: "Sense", sense: "Darkvision", range: 60 }) }
       ]) },
       { name: "A Strangely Warm Rock" }
     ] } }] })
@@ -696,12 +802,12 @@ const SHEET_GRAPH = JSON.stringify([
   check("a plain item reports a single Item record",
     survey.items.find(i => i.name === "Rope").types.join("+") === "Item");
   check("an item with a type we have no rule for is flagged",
-    survey.items.find(i => i.name === "Amulet of Health").unwritten.join(",") === "Action",
+    survey.items.find(i => i.name === "Amulet of Health").unwritten.join(",") === "Sense",
     JSON.stringify(survey.items.find(i => i.name === "Amulet of Health").unwritten));
   check("a manual item is described, not treated as broken",
     /no payload/.test(survey.items.find(i => i.name === "A Strangely Warm Rock").types));
   check("it groups by payload shape, so a big inventory collapses to cases",
-    survey.byShape["Item"] === 1 && survey.byShape["Item+Action"] === 1,
+    survey.byShape["Item"] === 1 && survey.byShape["Item+Sense"] === 1,
     JSON.stringify(survey.byShape));
   check("the verdict names what needs work",
     /1 item\(s\)/.test(survey.verdict) && survey.needsWork.length === 1, survey.verdict);

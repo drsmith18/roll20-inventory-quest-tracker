@@ -375,7 +375,7 @@
   function unwrittenSummary(datarecords) {
     var all = allPayloads(datarecords);
     if (!all) return { count: 0, types: [] };
-    var types = [], seenItem = false, seenAttack = false;
+    var types = [], seenItem = false, seenAttack = false, seenAction = false;
     all.forEach(function (p) {
       if (p.type === "Item") {
         if (!seenItem) { seenItem = true; return; }
@@ -388,6 +388,11 @@
         return;
       }
       if (CHILD_TYPES[p.type]) return;         // written as item children
+      if (p.type === "Action") { seenAction = true; return; }
+      if (p.type === "Resource" || p.type === "Healing") {
+        if (!seenAction) types.push(p.type);   // nothing to attach it to
+        return;
+      }
       types.push(p.type);
     });
     return { count: types.length, types: types };
@@ -449,6 +454,16 @@
   // The sheet names these after the item, with a per-type suffix:
   // "Breastplate AC", "Amulet of Health Attunement", and — using the ability
   // rather than the type — "Amulet of Health Constitution".
+  // The sheet names an ability's records after the item AND the ability, with
+  // the item suffix stripped: an Action called "Dark Blessing (Acheron
+  // Longsword)" yields "Acheron Longsword Dark Blessing Action".
+  function stripItemSuffix(name, itemName) {
+    var suffix = " (" + itemName + ")";
+    return name && itemName && name.slice(-suffix.length) === suffix
+      ? name.slice(0, -suffix.length)
+      : (name || "");
+  }
+
   function childRecordName(type, itemName, p) {
     var base = itemName || "";
     if (type === "Armor Class") return (base + " AC").trim();
@@ -469,7 +484,11 @@
     }
     // The most recent Attack (Damage attaches to it) and the most recent
     // Attunement (an Ability Score attaches to that when there is one).
-    var attackId = null, attunementId = null;
+    var attackId = null, attunementId = null, actionId = null;
+    // Which Resource records each Action consumes. The sheet records this as
+    // relations:{<resourceId>:"uses"} on the Action, and the payload does not
+    // carry it — it has to be generated once the new ids exist.
+    var usesOf = {};
 
     function structural(rec, p) {
       rec._id = PT.uid();
@@ -516,6 +535,59 @@
         records[d._id] = d;
         addChild(attackId, d._id);
 
+      } else if (p.type === "Action") {
+        // Abilities hang off the ATTUNEMENT (like Ability Score), while
+        // attacks hang off the item — a split worth stating, since both were
+        // in the same payload.
+        var act = structural(JSON.parse(JSON.stringify(p)), p);
+        act.parentID = attunementId || itemId;
+        act.sourceID = itemId;
+        act.source = "Item";
+        if (!act.actionType) act.actionType = "Action";
+        if (!act.name) act.name = (itemName || "") + " Action";
+        if (!act.recordName) {
+          act.recordName = ((itemName || "") + " " + stripItemSuffix(act.name, itemName) +
+            " " + act.actionType).replace(/\s+/g, " ").trim();
+        }
+        records[act._id] = act;
+        addChild(act.parentID, act._id);
+        actionId = act._id;
+        usesOf[act._id] = [];
+
+      } else if (p.type === "Resource" || p.type === "Healing") {
+        // Both belong to the Action they follow — this pair IS grouped by
+        // order, like Damage under an Attack. With no Action in front of
+        // them there is nowhere sensible to put them.
+        if (!actionId) { unwritten++; continue; }
+        var r = structural(JSON.parse(JSON.stringify(p)), p);
+        r.parentID = actionId;
+        if (r.source === undefined) r.source = "";
+        var actBase = stripItemSuffix(records[actionId].name, itemName);
+        if (p.type === "Resource") {
+          if (!r.name) r.name = actBase;
+          if (!r.recordName) {
+            r.recordName = ((itemName || "") + " " + r.name + " Resource").replace(/\s+/g, " ").trim();
+          }
+          usesOf[actionId].push(r._id);
+        } else {
+          // The sheet stores the dice count with a leading underscore; the
+          // payload sends it without one.
+          if (r.diceCount !== undefined && r._diceCount === undefined) {
+            r._diceCount = r.diceCount;
+            delete r.diceCount;
+          }
+          if (r._diceCount === undefined) r._diceCount = 1;
+          if (r.critDiceSize === undefined) r.critDiceSize = "";
+          if (r.overrideCrit === undefined) r.overrideCrit = false;
+          if (!r.name) {
+            r.name = ((itemName || "") + " " + actBase + (r.isTemp ? " Temp HP" : " Healing"))
+              .replace(/\s+/g, " ").trim();
+          }
+          if (!r.recordName) r.recordName = r.name;
+        }
+        records[r._id] = r;
+        addChild(actionId, r._id);
+
       } else if (CHILD_TYPES[p.type]) {
         // Attached by TYPE, not position: real armour carries these two in
         // either order ([Armor Class, Defense] and [Defense, Armor Class]),
@@ -545,6 +617,16 @@
         unwritten++;
       }
     }
+
+    // An Action declares the Resource it spends. Generated here rather than
+    // copied, because the ids are ours.
+    Object.keys(usesOf).forEach(function (id) {
+      if (!usesOf[id].length) return;
+      var rel = records[id].relations && typeof records[id].relations === "object"
+        ? records[id].relations : {};
+      usesOf[id].forEach(function (resId) { rel[resId] = "uses"; });
+      records[id].relations = rel;
+    });
 
     // childIDs is a STRING holding a JSON array; apply it once, everywhere.
     Object.keys(records).forEach(function (id) {
