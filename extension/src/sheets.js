@@ -304,18 +304,65 @@
     return true;
   }
 
-  function payloadsOf(datarecords) {
+  // Every record in a payload list, parsed. Two different things arrive here
+  // and they are told apart by whether the records carry ids (see below):
+  //
+  //   - a COMPENDIUM payload, as captured from a real longsword drop:
+  //       [{name:"Longsword", payload:"{\"type\":\"Item\",\"name\":...}"}, ...]
+  //     five records, each payload holding a `type` and content fields, and
+  //     NO _id, NO parentID, NO childIDs. The links between them are not in
+  //     the data.
+  //   - a SHEET payload, which takeItem produces by serialising integrants
+  //     that were already on a character. Those do carry _id/parentID/childIDs.
+  function allPayloads(datarecords) {
     var raw = PT.tryJson(datarecords || "");
-    if (!Array.isArray(raw) || !raw.length) return null;
+    if (!Array.isArray(raw) || !raw.length || raw.length > MAX_GRAPH_RECORDS) return null;
     var out = [];
     for (var i = 0; i < raw.length; i++) {
       var p = raw[i] && typeof raw[i].payload === "string" ? PT.tryJson(raw[i].payload) : null;
       if (!p || typeof p !== "object" || typeof p.type !== "string") return null;
-      var id = p._id || p.id;
-      if (!id || typeof id !== "string") return null;
       out.push(p);
     }
-    return out.length && out.length <= MAX_GRAPH_RECORDS ? out : null;
+    return out;
+  }
+
+  // Only the id-carrying (sheet-sourced) case, which is the one buildGraph
+  // can rewire. A compendium payload returns null here and takes the
+  // single-record path instead.
+  function payloadsOf(datarecords) {
+    var out = allPayloads(datarecords);
+    if (!out) return null;
+    for (var i = 0; i < out.length; i++) {
+      var id = out[i]._id || out[i].id;
+      if (!id || typeof id !== "string") return null;
+    }
+    return out.length ? out : null;
+  }
+
+  // The compendium's own Item record. This is the fix for a longsword landing
+  // as a possession: the record carries `weaponData`, `equipData.equippable`,
+  // `properties` and the full description, and we were discarding all of it
+  // to synthesise a bare Item from name/weight/cost. Using the sheet's own
+  // record instead is not a guess about the format — it IS the format.
+  //
+  // Structural fields (_id, parentID, childIDs, quantity and the rest) are
+  // never taken from here; addItem always sets those itself, which is also
+  // what makes this safe for a sheet-sourced record that already has them.
+  function compendiumItemPayload(datarecords) {
+    var all = allPayloads(datarecords);
+    if (!all) return null;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].type === "Item") return all[i];
+    }
+    return null;
+  }
+
+  // The records we are NOT writing yet — a longsword's payload has five, and
+  // only the Item among them is understood. Reported so the count shows up in
+  // diagnostics instead of vanishing.
+  function unwrittenCount(datarecords) {
+    var all = allPayloads(datarecords);
+    return all ? all.filter(function (p) { return p.type !== "Item"; }).length : 0;
   }
 
   // childIDs is a STRING holding a JSON array on the sheet. The compendium
@@ -403,30 +450,41 @@
 
   PT.sheets.explainGraph = function (item) {
     var dr = item && item.datarecords;
-    if (!dr) return { graph: false, why: "this item has no compendium payload (manual, name-only, or obscured)" };
-    var payloads = payloadsOf(dr);
-    if (!payloads) {
+    if (!dr) return { willWrite: "plain", why: "this item has no compendium payload (manual, name-only, or obscured)" };
+
+    var all = allPayloads(dr);
+    if (!all) {
       var raw = PT.tryJson(dr);
-      // On rejection, show the raw structure too — the whole point of this
-      // diagnostic is to reveal a payload shape that differs from the one
-      // buildGraph was written against, and "it was rejected" alone doesn't.
       return {
-        graph: false,
+        willWrite: "plain",
         why: !Array.isArray(raw)
           ? "the payload isn't a JSON array"
-          : "a record was unparseable, had no _id/id, had no string type, or there were more than " + MAX_GRAPH_RECORDS,
+          : "a record was unparseable, had no string type, or there were more than " + MAX_GRAPH_RECORDS,
         rawCount: Array.isArray(raw) ? raw.length : null,
         rawKeys: Array.isArray(raw) && raw[0] && typeof raw[0] === "object" ? Object.keys(raw[0]).join(",") : null,
         rawFirst: Array.isArray(raw) ? JSON.stringify(raw[0]).slice(0, 600) : String(dr).slice(0, 600)
       };
     }
+
     var built = buildGraph(dr, "diagnostic-parent", 1);
+    var itemRec = compendiumItemPayload(dr);
     return {
-      graph: !!built,
-      records: payloads.length,
-      types: payloads.map(function (p) { return p.type; }),
-      shape: payloads.map(shapeOf),
-      why: built ? "would rebuild in full" : "no single Item root, a child link pointing outside the payload, or malformed childIDs"
+      willWrite: built ? "graph" : itemRec ? "compendium item record" : "plain",
+      records: all.length,
+      types: all.map(function (p) { return p.type; }),
+      shape: all.map(shapeOf),
+      unwritten: unwrittenCount(dr),
+      // The non-Item records in full. The compendium payload carries no links
+      // between its records, so what an Attack or Damage record must look
+      // like — and what attaches it to its item — has to be read off real
+      // data before any of it can be written to a character.
+      others: all.filter(function (p) { return p.type !== "Item"; })
+        .map(function (p) { return JSON.stringify(p).slice(0, 900); }),
+      why: built
+        ? "sheet-sourced records with ids: rebuilt in full"
+        : itemRec
+          ? "compendium records carry no ids or links, so the Item record is used as-is and the rest are not written yet"
+          : "no Item record among the payloads"
     };
   };
 
@@ -651,35 +709,49 @@
         });
       }
 
-      // Fallback: one plain Item record. This is everything a manual item or
-      // an unresolved compendium drop has to offer, and what a compendium
-      // item degrades to if its payload doesn't match what buildGraph knows.
+      // Single-record path. The base is the compendium's OWN Item record when
+      // the drop captured one — that is what carries weaponData, equipData,
+      // properties and the real description, and building our own instead is
+      // exactly why a longsword arrived as a possession. Only when there is
+      // no such record do we synthesise one from the little we stored.
       var newId = PT.uid();
-      var rec = {
-        _enabled: true,
-        _id: newId,
-        childIDs: "[]",
-        cost: (item && item.cost) || "",
-        createdTime: Date.now(),
-        description: (item && item.description) || "",
-        equipData: { equippable: false },
-        label: "",
-        name: name,
-        parentID: parentId,
-        quantity: qty,
-        rarity: (item && item.rarity) || "",
-        recordName: name,
-        shortID: "pt" + Math.random().toString(36).slice(2, 8),
-        source: "Item",
-        sourceID: "",
-        tempShopData: { compendiumUrl: "", useCompendiumLink: false },
-        type: "Item"
-      };
-      // weight is omitted entirely rather than written as null/undefined
-      // when the caller didn't supply one.
-      if (item && item.weight !== undefined && item.weight !== null && item.weight !== "") {
-        rec.weight = item.weight;
+      var source = item && item.datarecords ? compendiumItemPayload(item.datarecords) : null;
+      var rec;
+      if (source) {
+        rec = JSON.parse(JSON.stringify(source));
+      } else {
+        rec = {
+          _enabled: true,
+          cost: (item && item.cost) || "",
+          description: (item && item.description) || "",
+          equipData: { equippable: false },
+          label: "",
+          rarity: (item && item.rarity) || "",
+          source: "Item",
+          sourceID: "",
+          tempShopData: { compendiumUrl: "", useCompendiumLink: false }
+        };
+        // weight is omitted entirely rather than written as null/undefined
+        // when the caller didn't supply one.
+        if (item && item.weight !== undefined && item.weight !== null && item.weight !== "") {
+          rec.weight = item.weight;
+        }
       }
+
+      // Structural fields are ours in BOTH cases: the compendium record has
+      // no ids at all, and a sheet-sourced one carries ids belonging to the
+      // character it came off. Setting them unconditionally is what makes
+      // either safe to use as a base.
+      rec._id = newId;
+      rec.parentID = parentId;
+      rec.childIDs = "[]";
+      rec.quantity = qty;
+      rec.type = "Item";
+      rec.name = name || rec.name || "";
+      rec.recordName = rec.name;
+      if (!rec.shortID) rec.shortID = "pt" + Math.random().toString(36).slice(2, 8);
+      if (!rec.createdTime) rec.createdTime = Date.now();
+      if (rec._enabled === undefined) rec._enabled = true;
 
       if (!registerWithParent(ints, parentId, newId)) {
         return { ok: false, err: "parent item's childIDs was not valid JSON; refusing to write" };
@@ -692,7 +764,15 @@
         return !!(bi && bi[newId]);
       }).then(function (wr) {
         if (!wr.ok) return { ok: false, err: wr.err };
-        return { ok: true, id: newId, graph: false, records: 1 };
+        return {
+          ok: true, id: newId, graph: false,
+          // Which base was used, and how much of the payload is still not
+          // being written — the attack and damage records, whose wiring the
+          // compendium payload does not describe.
+          fromCompendium: !!source,
+          records: 1,
+          unwritten: item && item.datarecords ? unwrittenCount(item.datarecords) : 0
+        };
       });
     });
   };

@@ -3,23 +3,38 @@
 // claimed weapon arriving as a weapon), taking an item back off a sheet, and
 // the party-visibility filter that decides who a player may split coins with.
 //
-// KNOWN LIMIT, read before trusting a green run: LONGSWORD below is a
-// reconstruction of the compendium payload, inferred from drops.js's parser
-// and the S2/S3 spike findings — not a captured sample. These tests prove the
-// logic is right GIVEN that shape. They cannot prove the shape. Confirm that
-// separately with PT.sheets.explainGraph() against a real drop in a test game
-// (snippet (a2) at the bottom of extension/src/sheets.js).
+// The COMPENDIUM fixture below is captured from a real longsword drop
+// (v0.9.1 diagnostic, Aug 2026) — it is the shape the live endpoint returns,
+// not an inference. Note what it does NOT have: no _id, no parentID, no
+// childIDs. The links between a weapon's five records are not in the data,
+// which is why only the Item record is written today.
+//
+// The SHEET fixture is the other shape: integrants serialised off a character
+// by takeItem, which DO carry ids and links and so can be rebuilt in full.
 const { createWorld, makeCharacter, integrantsOf } = require("./lib/world");
 const { section, check, report } = require("./lib/assert");
 
 const { win, PT } = createWorld({ scripts: ["util.js", "sheets.js"] });
 
-// Item -> Attack -> Damage, the Item's parent pointing at the compendium page
-// (i.e. outside the payload set, which is what marks it as the root).
 const LONGSWORD = JSON.stringify([
-  { payload: JSON.stringify({ _id: "ls", type: "Item", name: "Longsword", quantity: 1, parentID: "page-root", childIDs: '["atk"]', weight: 3, cost: "15 GP", rarity: "", description: "Versatile (1d10)", properties: ["Versatile", "Martial"] }) },
-  { payload: JSON.stringify({ _id: "atk", type: "Attack", name: "Longsword", parentID: "ls", childIDs: '["dmg"]', attackType: "Melee", proficient: true, ability: "strength" }) },
-  { payload: JSON.stringify({ _id: "dmg", type: "Damage", name: "Slashing", parentID: "atk", childIDs: "[]", dice: "1d8", damageType: "slashing" }) }
+  { name: "Longsword", payload: JSON.stringify({
+    type: "Item", name: "Longsword",
+    description: "Versatile. A Versatile weapon can be used with one or two hands.\nDamage: 1d8 (1d10)\nDamage Type: Slashing\nProperties: Versatile\nMastery: Sap\nWeight: 3",
+    weight: 3, properties: ["Versatile (1d10)"], cost: "15 GP",
+    weaponData: { category: "Melee", training: "Martial", type: "Longsword" },
+    equipData: { equippable: true }
+  }) },
+  { name: "Longsword", payload: JSON.stringify({ type: "Attack", name: "Longsword", attackType: "Melee" }) },
+  { name: "Longsword", payload: JSON.stringify({ type: "Damage", name: "Slashing", dice: "1d8" }) },
+  { name: "Longsword", payload: JSON.stringify({ type: "Damage", name: "Slashing (two-handed)", dice: "1d10" }) },
+  { name: "Longsword", payload: JSON.stringify({ type: "Mastery", name: "Sap" }) }
+]);
+
+// Sheet-sourced: ids and links present, so the full graph can be rewired.
+const SHEET_GRAPH = JSON.stringify([
+  { payload: JSON.stringify({ _id: "ls", type: "Item", name: "Longsword", quantity: 1, parentID: "inventory", childIDs: '["atk"]', weight: 3, cost: "15 GP", weaponData: { category: "Melee" }, equipData: { equippable: true } }) },
+  { payload: JSON.stringify({ _id: "atk", type: "Attack", name: "Longsword", parentID: "ls", childIDs: '["dmg"]', attackType: "Melee" }) },
+  { payload: JSON.stringify({ _id: "dmg", type: "Damage", name: "Slashing", parentID: "atk", childIDs: "[]", dice: "1d8" }) }
 ]);
 
 (async () => {
@@ -47,89 +62,129 @@ const LONGSWORD = JSON.stringify([
   check("an unparseable tags field means no tag, not a crash",
     !PT.sheets.hasPartyTag(makeCharacter("X", { tags: "{not json" })));
 
-  // ---- claiming a weapon ---------------------------------------------------
-  section("claiming a compendium weapon keeps its records:");
+  // ---- claiming a compendium weapon ----------------------------------------
+  // The bug this exists for: a longsword arriving as a possession, because
+  // the write synthesised its own Item record and threw the compendium's away
+  // along with weaponData and equipData.
+  section("claiming a compendium weapon uses the compendium's own Item record:");
   const hero = makeCharacter("Vex", { controlledby: "p1" });
   const add = await PT.sheets.addItem(hero, {
-    name: "Longsword", qty: 2, description: "Versatile (1d10)",
+    name: "Longsword", qty: 2, description: "(the bag's thinner copy)",
     weight: 3, cost: "15 GP", rarity: "", datarecords: LONGSWORD
   });
   check("the write reports success", add.ok, add.err);
-  check("it took the graph path, not the plain-item path", add.graph === true);
-  check("all three records were written", add.records === 3, add.records);
+  check("it used the compendium's Item record", add.fromCompendium === true);
+  check("it reports the records it did not write", add.unwritten === 4, add.unwritten);
 
   const ints = integrantsOf(hero);
   const root = ints[add.id];
+  check("weaponData survived — this is what makes it a weapon",
+    root.weaponData && root.weaponData.category === "Melee" && root.weaponData.training === "Martial",
+    JSON.stringify(root.weaponData));
+  check("equipData.equippable survived as true, not the synthesised false",
+    root.equipData && root.equipData.equippable === true, JSON.stringify(root.equipData));
+  check("weapon properties survived",
+    root.properties && root.properties.join(",") === "Versatile (1d10)", JSON.stringify(root.properties));
+  check("the compendium's full description won over the bag's copy",
+    /Mastery: Sap/.test(root.description), root.description);
   check("the item landed under the character's own item parent",
-    root && root.parentID === "inventory", root && root.parentID);
+    root.parentID === "inventory", root.parentID);
   check("the parent registered it as a child",
     JSON.parse(ints.inventory.childIDs).includes(add.id), ints.inventory.childIDs);
-  check("the compendium's ids were NOT reused",
-    !ints.ls && !ints.atk && !ints.dmg, Object.keys(ints).join(", "));
-  check("quantity came from the claim, not the compendium",
-    root.quantity === 2, root && root.quantity);
+  check("quantity came from the claim, not the compendium", root.quantity === 2, root.quantity);
+  check("it got a fresh id and an empty child list",
+    root._id === add.id && root.childIDs === "[]", root._id + " / " + root.childIDs);
+  check("recordName tracks the name", root.recordName === "Longsword", root.recordName);
+  check("the character's pre-existing item was left alone", !!ints.rope);
 
-  const attack = ints[JSON.parse(root.childIDs)[0]];
+  // ---- a sheet-sourced graph still rebuilds in full ------------------------
+  section("a graph WITH ids (from takeItem) still rebuilds in full:");
+  const heroG = makeCharacter("Vex", { controlledby: "p1" });
+  const addG = await PT.sheets.addItem(heroG, { name: "Longsword", qty: 1, datarecords: SHEET_GRAPH });
+  check("the write reports success", addG.ok, addG.err);
+  check("it took the graph path", addG.graph === true);
+  check("all three records were written", addG.records === 3, addG.records);
+  const intsG = integrantsOf(heroG);
+  const rootG = intsG[addG.id];
+  check("the compendium's ids were NOT reused",
+    !intsG.ls && !intsG.atk && !intsG.dmg, Object.keys(intsG).join(", "));
+  const attack = intsG[JSON.parse(rootG.childIDs)[0]];
   check("the Attack record came with it", attack && attack.type === "Attack", attack && attack.type);
   check("the Attack points back at the new item id",
-    attack && attack.parentID === add.id, attack && attack.parentID);
-  const dmg = ints[JSON.parse(attack.childIDs)[0]];
-  check("the Damage record came with it", dmg && dmg.type === "Damage", dmg && dmg.type);
+    attack && attack.parentID === addG.id, attack && attack.parentID);
+  const dmg = intsG[JSON.parse(attack.childIDs)[0]];
   check("damage dice survived", dmg && dmg.dice === "1d8", dmg && dmg.dice);
-  check("weapon properties survived",
-    root.properties && root.properties.join(",") === "Versatile,Martial", JSON.stringify(root.properties));
-  check("the character's pre-existing item was left alone", !!ints.rope);
 
   // ---- malformed payloads --------------------------------------------------
   // Every one of these must degrade to the plain-item write, never write a
   // half-understood graph into somebody's character.
-  section("malformed payloads fall back instead of writing nonsense:");
+  // Two outcomes are correct here, and which one applies is the point:
+  //   - a payload with a usable Item record: use it, links or no links (a
+  //     real compendium payload has NO links, so this is the common case).
+  //   - a payload with nothing usable in it: synthesise a plain item.
+  // Either way exactly one record is written and the sheet stays sane.
+  section("payloads that can't be rebuilt as a graph:");
   const cases = {
-    "not JSON at all": "{{{",
-    "a record with no id": JSON.stringify([{ payload: JSON.stringify({ type: "Item", name: "X" }) }]),
-    "two roots": JSON.stringify([
+    "not JSON at all": ["{{{", "plain"],
+    "a record with no id (i.e. every real compendium payload)":
+      [JSON.stringify([{ payload: JSON.stringify({ type: "Item", name: "X" }) }]), "compendium item record"],
+    "two Item records": [JSON.stringify([
       { payload: JSON.stringify({ _id: "a", type: "Item", name: "A", parentID: "out", childIDs: "[]" }) },
       { payload: JSON.stringify({ _id: "b", type: "Item", name: "B", parentID: "out", childIDs: "[]" }) }
-    ]),
-    "a root that isn't an Item": JSON.stringify([
+    ]), "compendium item record"],
+    "no Item record at all": [JSON.stringify([
       { payload: JSON.stringify({ _id: "a", type: "Attack", name: "A", parentID: "out", childIDs: "[]" }) }
-    ]),
-    "a child link pointing outside the payload": JSON.stringify([
+    ]), "plain"],
+    "a child link pointing outside the payload": [JSON.stringify([
       { payload: JSON.stringify({ _id: "a", type: "Item", name: "A", parentID: "out", childIDs: '["ghost"]' }) }
-    ]),
-    "malformed childIDs": JSON.stringify([
+    ]), "compendium item record"],
+    "malformed childIDs": [JSON.stringify([
       { payload: JSON.stringify({ _id: "a", type: "Item", name: "A", parentID: "out", childIDs: "[not json" }) }
-    ])
+    ]), "compendium item record"],
+    "a payload record that isn't an object": [JSON.stringify([{ payload: "42" }]), "plain"]
   };
-  for (const [label, datarecords] of Object.entries(cases)) {
+  for (const [label, [datarecords, expected]] of Object.entries(cases)) {
     const c = makeCharacter("Test", { controlledby: "p1" });
     const r = await PT.sheets.addItem(c, { name: "Thing", qty: 1, datarecords });
     const written = Object.keys(integrantsOf(c)).length;
-    check(label + " -> one plain item, sheet still sane",
+    check(label + " -> exactly one record, sheet still sane",
       r.ok && r.graph === false && written === 3,
       "ok=" + r.ok + " graph=" + r.graph + " records=" + written);
-    check(label + " -> explainGraph says why", PT.sheets.explainGraph({ datarecords }).graph === false);
+    check(label + " -> explainGraph predicts “" + expected + "”",
+      PT.sheets.explainGraph({ datarecords }).willWrite === expected,
+      JSON.stringify(PT.sheets.explainGraph({ datarecords }).willWrite));
+    // Whatever the base, the structural fields must be ours — a stale
+    // parentID or a reused id from the payload would corrupt the sheet.
+    const rec = integrantsOf(c)[r.id];
+    check(label + " -> structural fields are ours, not the payload's",
+      rec._id === r.id && rec.parentID === "inventory" && rec.childIDs === "[]",
+      rec._id + " / " + rec.parentID + " / " + rec.childIDs);
   }
 
   // ---- taking an item back off a sheet -------------------------------------
+  // Taken against the character carrying the FULL graph, so the subtree
+  // deletion has something to delete. Doing this against a single-record
+  // compendium item would pass vacuously.
   section("taking an item back off a sheet:");
-  const take = await PT.sheets.takeItem(hero, add.id, 1);
+  const partial = await PT.sheets.addItem(heroG, { name: "Longsword", qty: 2, datarecords: SHEET_GRAPH });
+  const take = await PT.sheets.takeItem(heroG, partial.id, 1);
   check("a partial take reports success", take.ok, take.err);
   check("a partial take does not remove the record", take.removedWholeStack === false);
-  check("the stack was decremented", integrantsOf(hero)[add.id].quantity === 1,
-    integrantsOf(hero)[add.id] && integrantsOf(hero)[add.id].quantity);
+  check("the stack was decremented", integrantsOf(heroG)[partial.id].quantity === 1,
+    integrantsOf(heroG)[partial.id] && integrantsOf(heroG)[partial.id].quantity);
   check("the taken item carries a record graph back", !!take.item.datarecords);
 
-  const take2 = await PT.sheets.takeItem(hero, add.id, 1);
+  const take2 = await PT.sheets.takeItem(heroG, addG.id, 1);
   check("taking the last one reports success", take2.ok, take2.err);
   check("the whole stack was removed", take2.removedWholeStack === true);
-  check("the item record is gone", !integrantsOf(hero)[add.id]);
+  check("the item record is gone", !integrantsOf(heroG)[addG.id]);
   check("its Attack and Damage records went too",
-    !integrantsOf(hero)[attack._id] && !integrantsOf(hero)[dmg._id]);
+    !integrantsOf(heroG)[attack._id] && !integrantsOf(heroG)[dmg._id],
+    Object.keys(integrantsOf(heroG)).join(","));
   check("the parent no longer lists it",
-    !JSON.parse(integrantsOf(hero).inventory.childIDs).includes(add.id),
-    integrantsOf(hero).inventory.childIDs);
-  check("the untouched item is still there", !!integrantsOf(hero).rope);
+    !JSON.parse(integrantsOf(heroG).inventory.childIDs).includes(addG.id),
+    integrantsOf(heroG).inventory.childIDs);
+  check("the untouched item is still there", !!integrantsOf(heroG).rope);
 
   // ---- round trip ----------------------------------------------------------
   // The point of keeping the graph on the way out: a weapon put in the bag
@@ -137,6 +192,15 @@ const LONGSWORD = JSON.stringify([
   section("round trip (sheet -> bag -> sheet):");
   const hero2 = makeCharacter("Vex", { controlledby: "p1" });
   const back = await PT.sheets.addItem(hero2, { name: "Longsword", qty: 1, datarecords: take2.item.datarecords });
+  check("a deposited compendium item keeps its weapon data too", (await (async () => {
+    const h = makeCharacter("Vex", { controlledby: "p1" });
+    const a = await PT.sheets.addItem(h, { name: "Longsword", qty: 1, datarecords: LONGSWORD });
+    const t = await PT.sheets.takeItem(h, a.id, 1);
+    const h2 = makeCharacter("Vex", { controlledby: "p1" });
+    const a2 = await PT.sheets.addItem(h2, { name: "Longsword", qty: 1, datarecords: t.item.datarecords });
+    const r = integrantsOf(h2)[a2.id];
+    return !!(r.weaponData && r.weaponData.category === "Melee" && r.equipData.equippable === true);
+  })()));
   check("the deposited item can be claimed again", back.ok, back.err);
   check("and it still rebuilds as a graph", back.graph === true, "graph=" + back.graph);
   check("with all three records", back.records === 3, back.records);
@@ -145,8 +209,8 @@ const LONGSWORD = JSON.stringify([
   const atk2 = ints2[JSON.parse(root2.childIDs)[0]];
   const dmg2 = ints2[JSON.parse(atk2.childIDs)[0]];
   check("damage dice survived the round trip", dmg2 && dmg2.dice === "1d8", dmg2 && dmg2.dice);
-  check("properties survived the round trip",
-    root2.properties && root2.properties.join(",") === "Versatile,Martial", JSON.stringify(root2.properties));
+  check("weaponData survived the round trip",
+    root2.weaponData && root2.weaponData.category === "Melee", JSON.stringify(root2.weaponData));
 
   // ---- refusals ------------------------------------------------------------
   // "Fail loudly, never guess" is the house rule for sheet writes.

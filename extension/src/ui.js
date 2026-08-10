@@ -539,8 +539,9 @@
         return removeFromBag().then(function (r) {
           if (r.ok) {
             // Surfaced so the caller can warn when an item that HAD a
-            // compendium graph still landed as a plain possession.
+            // compendium record still landed as a synthesised plain one.
             r.graph = !!sheetRes.graph;
+            r.fromCompendium = !!sheetRes.fromCompendium;
             PT.store.appendLog(env, env.playerName + " claimed " + qty + "× “" + item.name + "” to " + charName);
             return r;
           }
@@ -627,12 +628,13 @@
         if (!r.ok) { ui.toast("Claim failed, nothing was changed: " + r.err); ui.refresh(); return; }
         if (unsupportedClaim) {
           ui.toast("“" + item.name + "” recorded as assigned to " + character.get("name") + " — move it onto the sheet by hand.");
-        } else if (item.datarecords && r.graph === false) {
-          // It came from the compendium with a record graph, but the graph
-          // didn't match what we know how to rebuild, so it went on as a
-          // plain item. Say so — the alternative is the player quietly
-          // fighting a longsword with no attack roll.
-          ui.toast("“" + item.name + "” went onto the sheet as a plain item — its attack/damage data couldn't be rebuilt. Add the weapon from the sheet's own compendium if you need the attack.", 10000);
+        } else if (item.datarecords && !r.fromCompendium && !r.graph) {
+          // It had a compendium record and we still couldn't use it, so the
+          // item on the sheet was synthesised from the little the bag stored
+          // — no weapon data. Say so, rather than let someone find out mid
+          // combat. (An item that DID use its compendium record says nothing:
+          // that is the normal, working case.)
+          ui.toast("“" + item.name + "” went onto the sheet as a plain item — its compendium data couldn't be read. Add it from the sheet's own compendium if you need the full weapon.", 10000);
         }
         ui.refresh();
       });

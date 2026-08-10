@@ -61,21 +61,42 @@ in the panel before the expensive version gets built.
 
 ---
 
-## Verify the compendium payload shape against a real drop
+## Attack and damage records for a claimed weapon
 
-Not an idea so much as an outstanding check on shipped code (v0.9.0).
+**Answered, Aug 2026:** the compendium payload's real shape was captured from
+a live longsword drop (`PT.sheets.report()`), and it is not what v0.9.0
+assumed. A weapon's payload is five records:
 
-Claiming rebuilds a weapon's Item/Attack/Damage graph from the
-`data-datarecords` payload stored at drop time. That payload's exact shape is
-inferred from `drops.js`'s parser and the S2/S3 findings — there is no
-captured sample in this repo, and the tests use a reconstruction. The code
-falls back to a plain item and warns when the payload doesn't match, so a
-wrong guess degrades rather than corrupts, but it hasn't been confirmed
-against the real thing.
+```
+[{name:"Longsword", payload:"{\"type\":\"Item\", ...}"}, ...]
+```
 
-**Settles it:** in a test game, drag a weapon from the compendium into a bag
-and run snippet (a2) at the bottom of `extension/src/sheets.js`
-(`PT.sheets.explainGraph`). Paste the output here.
+Each payload has a `type` and its content fields, and **no `_id`, no
+`parentID`, no `childIDs`**. The links between the five records are simply
+not in the data. The v0.9.0 code was written for a pre-linked graph, so it
+rejected every real payload and fell back to a synthesised plain item — which
+is why longswords arrived as possessions.
+
+v0.9.2 uses the compendium's own **Item** record as the base instead of
+synthesising one. That carries `weaponData` (`{category, training, type}`),
+`equipData.equippable`, `properties` and the full description, which is what
+makes the sheet treat it as a weapon.
+
+**Still open:** the other four records (Attack, two Damage, Mastery on a
+longsword) are not written. Nothing in the payload says how they attach to
+the item, and inventing a wiring is the kind of guess that corrupts
+characters. Two ways forward, neither attempted yet:
+
+1. Add a weapon through Roll20's own sheet UI, then dump the resulting
+   integrants with `PT.sheets.report("Name")` and compare against a
+   Party-Tools-claimed one. Whatever links the sheet's Attack record to its
+   Item is the answer, and then the payload's Attack/Damage content can be
+   written into that structure.
+2. Find out whether the sheet DERIVES attacks from `weaponData` on its own.
+   If it does, there is nothing left to build — check whether a claimed
+   longsword now rolls an attack before doing any of (1).
+
+**Do (2) first**, since it might make (1) unnecessary.
 
 ---
 
