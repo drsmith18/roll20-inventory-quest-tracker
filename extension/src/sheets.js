@@ -387,6 +387,7 @@
         if (!seenAttack) types.push("Damage");
         return;
       }
+      if (ITEM_CHILD_TYPES[p.type]) return;   // written as item children
       types.push(p.type);
     });
     return { count: types.length, types: types };
@@ -419,11 +420,23 @@
   //   Item.childIDs   -> [attackId, ...]
   //   Attack.parentID -> itemId,   Attack.sourceID -> itemId, source "Item"
   //   Damage.parentID -> attackId, Damage.sourceID -> itemId, source "Item"
-  function buildAttacks(datarecords, itemId, pageId) {
+  // Record types that hang directly off the Item and are NOT attacks.
+  // Captured from a sheet-made Breastplate, and deliberately different from
+  // the Attack rule in three ways — every one of which would have been got
+  // wrong by generalising from weapons:
+  //   - no sourceID at all (an Attack carries sourceID: <itemId>)
+  //   - no cascades at all (an Attack cascades off Equip)
+  //   - `source` is the PAYLOAD'S own ("Armor" on an Armor Class record),
+  //     not the provenance "Item" an Attack gets. Same field name, different
+  //     meaning, and overwriting it would likely break the AC calculation
+  //     while still looking right on screen.
+  var ITEM_CHILD_TYPES = { "Armor Class": true, "Defense": true };
+
+  function buildAttacks(datarecords, itemId, itemName, pageId) {
     var all = allPayloads(datarecords);
     if (!all) return null;
 
-    var records = {}, attackIds = [], unwritten = 0;
+    var records = {}, attackIds = [], childIds = [], unwritten = 0;
     var attack = null, damageIds = null;
 
     function closeAttack() {
@@ -452,6 +465,7 @@
         if (pageId && !a.compendiumPageID) a.compendiumPageID = pageId;
         records[a._id] = a;
         attackIds.push(a._id);
+        childIds.push(a._id);
         attack = a;
         damageIds = [];
       } else if (p.type === "Damage") {
@@ -479,12 +493,39 @@
         if (pageId && !d.compendiumPageID) d.compendiumPageID = pageId;
         records[d._id] = d;
         damageIds.push(d._id);
+      } else if (ITEM_CHILD_TYPES[p.type]) {
+        // Order-independent, unlike Damage: these attach to the item, not to
+        // whatever preceded them. That matters — the same two records arrive
+        // as [Armor Class, Defense] on one piece of armour and
+        // [Defense, Armor Class] on another, so a rule that paired by
+        // position would be wrong half the time.
+        var c = JSON.parse(JSON.stringify(p));
+        c._id = PT.uid();
+        c.parentID = itemId;
+        c.childIDs = "[]";
+        c._enabled = true;
+        if (c.label === undefined) c.label = "";
+        if (!c.name) {
+          c.name = itemName
+            ? itemName + (p.type === "Armor Class" ? " AC" : " " + p.type)
+            : p.type;
+        }
+        if (!c.recordName) c.recordName = c.name;
+        if (!c.shortID) c.shortID = shortId();
+        if (!c.createdTime) c.createdTime = Date.now();
+        if (pageId && !c.compendiumPageID) c.compendiumPageID = pageId;
+        // Present on the sheet's own AC record and absent from the payload.
+        if (p.type === "Armor Class" && c.defaultAbility === undefined) c.defaultAbility = false;
+        // NOT set, per the captured record: sourceID, cascades, and `source`
+        // — the payload's own source is the meaningful one here.
+        records[c._id] = c;
+        childIds.push(c._id);
       } else {
         unwritten++;
       }
     }
     closeAttack();
-    return { records: records, attackIds: attackIds, unwritten: unwritten };
+    return { records: records, attackIds: attackIds, childIds: childIds, unwritten: unwritten };
   }
 
   // childIDs is a STRING holding a JSON array on the sheet. The compendium
@@ -1506,10 +1547,10 @@
       // The attacks and their damage, when the payload has them. Without
       // these the sheet shows a weapon with no attack roll — an item is not a
       // weapon to the sheet just because it carries weaponData.
-      var extras = source ? buildAttacks(item.datarecords, newId, item.compendiumPageID) : null;
+      var extras = source ? buildAttacks(item.datarecords, newId, rec.name, item.compendiumPageID) : null;
       var extraIds = [];
-      if (extras && extras.attackIds.length) {
-        rec.childIDs = JSON.stringify(extras.attackIds);
+      if (extras && extras.childIds.length) {
+        rec.childIDs = JSON.stringify(extras.childIds);
         extraIds = Object.keys(extras.records);
         extraIds.forEach(function (id) { ints[id] = extras.records[id]; });
       }
@@ -1525,6 +1566,8 @@
           fromCompendium: !!source,
           records: 1 + extraIds.length,
           attacks: extras ? extras.attackIds.length : 0,
+          // Armour and the like: item children that are not attacks.
+          itemChildren: extras ? extras.childIds.length - extras.attackIds.length : 0,
           // Payload records we have no rule for, named rather than silently
           // dropped — the caller warns the player with these.
           unwritten: item && item.datarecords ? unwrittenCount(item.datarecords) : 0,

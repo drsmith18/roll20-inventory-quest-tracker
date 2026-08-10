@@ -34,6 +34,29 @@ const LONGSWORD = JSON.stringify([
   { name: "Longsword", payload: JSON.stringify({ type: "Damage", ability: "auto", damageType: "Slashing", diceSize: "d10" }) }
 ]);
 
+// Captured verbatim with payloadDump (Aug 2026). Note the Item carries
+// armorData, but the AC VALUE lives in the separate Armor Class record —
+// which is why armour used to equip, display, and grant nothing.
+const BREASTPLATE = JSON.stringify([
+  { payload: JSON.stringify({
+    type: "Item", name: "Adamantine Breastplate",
+    description: "This suit of armor is reinforced with adamantine...",
+    weight: 20, properties: [], cost: "800 GP", rarity: "Uncommon",
+    armorData: { category: "Medium", type: "Breastplate", bonusCap: 2, ability: "Dexterity" },
+    equipData: { equippable: true }
+  }) },
+  { payload: JSON.stringify({ type: "Armor Class", calculation: "Set Base", source: "Armor", valueFormula: { flatValue: 14 } }) },
+  { payload: JSON.stringify({ type: "Defense", defense: "Immunity", damage: "Critical Hit", details: "...becomes a normal hit." }) }
+]);
+
+// The same two records in the OPPOSITE order, exactly as the Adamantine
+// Chain Shirt carries them. Armour must not be paired by position.
+const CHAIN_SHIRT = JSON.stringify([
+  { payload: JSON.stringify({ type: "Item", name: "Adamantine Chain Shirt", armorData: { category: "Medium" }, equipData: { equippable: true } }) },
+  { payload: JSON.stringify({ type: "Defense", defense: "Immunity", damage: "Critical Hit" }) },
+  { payload: JSON.stringify({ type: "Armor Class", calculation: "Set Base", source: "Armor", valueFormula: { flatValue: 13 } }) }
+]);
+
 // Sheet-sourced: ids and links present, so the full graph can be rewired.
 const SHEET_GRAPH = JSON.stringify([
   { payload: JSON.stringify({ _id: "ls", type: "Item", name: "Longsword", quantity: 1, parentID: "inventory", childIDs: '["atk"]', weight: 3, cost: "15 GP", weaponData: { category: "Melee" }, equipData: { equippable: true } }) },
@@ -146,6 +169,69 @@ const SHEET_GRAPH = JSON.stringify([
   check("damage records got a name, since the payload has none",
     /Longsword \(One-Handed\)/.test(d1.name), d1.name);
 
+  // Armour. Every assertion here is against a Breastplate that Roll20 itself
+  // put on a character (weaponDump, Aug 2026) — the three differences from
+  // the Attack rule are the whole point.
+  section("armour: the AC record is written as the sheet writes it:");
+  const armourChar2 = makeCharacter("Vex", { controlledby: "p1" });
+  const bp = await PT.sheets.addItem(armourChar2, {
+    name: "Adamantine Breastplate", qty: 1,
+    datarecords: BREASTPLATE, compendiumPageID: "66a7b11eb69ce10013cfd429"
+  });
+  check("the write succeeds", bp.ok, bp.err);
+  check("it writes the item plus both child records", bp.records === 3, bp.records);
+  check("neither is counted as an attack", bp.attacks === 0, bp.attacks);
+  check("both are counted as item children", bp.itemChildren === 2, bp.itemChildren);
+  check("nothing is left unwritten now", bp.unwritten === 0, JSON.stringify(bp.unwrittenTypes));
+
+  const aInts = integrantsOf(armourChar2);
+  const bpItem = aInts[bp.id];
+  check("armorData still rides on the item",
+    bpItem.armorData && bpItem.armorData.bonusCap === 2, JSON.stringify(bpItem.armorData));
+  const kids = JSON.parse(bpItem.childIDs).map(id => aInts[id]);
+  const ac = kids.find(r => r.type === "Armor Class");
+  const def = kids.find(r => r.type === "Defense");
+  check("the item lists both children", kids.length === 2, bpItem.childIDs);
+  check("the AC record is a child of the item", ac && ac.parentID === bp.id, ac && ac.parentID);
+  check("the AC VALUE came across — the whole point",
+    ac.valueFormula && ac.valueFormula.flatValue === 14, JSON.stringify(ac.valueFormula));
+  check("calculation survived", ac.calculation === "Set Base", ac.calculation);
+  // The three ways armour differs from an attack. Getting any of these wrong
+  // yields an AC that looks plausible and computes wrongly.
+  check("source stays the payload's \"Armor\", NOT provenance \"Item\"",
+    ac.source === "Armor", ac.source);
+  check("no sourceID is written, unlike an Attack", ac.sourceID === undefined, ac.sourceID);
+  check("no cascades are written, unlike an Attack", ac.cascades === undefined, JSON.stringify(ac.cascades));
+  check("it is named the way the sheet names it", ac.name === "Adamantine Breastplate AC", ac.name);
+  check("defaultAbility is set, as on the sheet's own record",
+    ac.defaultAbility === false, ac.defaultAbility);
+  check("the compendium page id reaches the child records",
+    ac.compendiumPageID === "66a7b11eb69ce10013cfd429", ac.compendiumPageID);
+  check("the Defense record is written too, parented to the item",
+    def && def.parentID === bp.id && def.defense === "Immunity", JSON.stringify(def && def.defense));
+  check("Defense keeps its own detail fields", def.damage === "Critical Hit", def.damage);
+
+  // The trap: the same two records arrive in either order on real armour.
+  section("armour is order-independent, unlike Attack/Damage:");
+  const shirtChar = makeCharacter("Vex", { controlledby: "p1" });
+  const shirt = await PT.sheets.addItem(shirtChar, { name: "Adamantine Chain Shirt", qty: 1, datarecords: CHAIN_SHIRT });
+  const sInts = integrantsOf(shirtChar);
+  const sKids = JSON.parse(sInts[shirt.id].childIDs).map(id => sInts[id]);
+  const sAc = sKids.find(r => r.type === "Armor Class");
+  check("Defense-then-ArmorClass writes both", sKids.length === 2, sInts[shirt.id].childIDs);
+  check("and the AC value is still right",
+    sAc.valueFormula.flatValue === 13, JSON.stringify(sAc && sAc.valueFormula));
+  check("neither attached itself to the other",
+    sKids.every(r => r.parentID === shirt.id), JSON.stringify(sKids.map(r => r.parentID)));
+
+  // A weapon must be untouched by the armour rule.
+  section("the weapon path is unaffected:");
+  check("a weapon still writes 5 records with 2 attacks",
+    add.records === 5 && add.attacks === 2, add.records + "/" + add.attacks);
+  check("a weapon's attack still carries sourceID and cascades",
+    a1.sourceID === add.id && !!a1.cascades, a1.sourceID);
+  check("a weapon reports no item children", add.itemChildren === 0, add.itemChildren);
+
   section("a payload with no attacks writes just the item:");
   const plainChar = makeCharacter("Vex", { controlledby: "p1" });
   const torch = await PT.sheets.addItem(plainChar, {
@@ -194,18 +280,20 @@ const SHEET_GRAPH = JSON.stringify([
     pack.unwritten + " / " + JSON.stringify(pack.unwrittenTypes));
   const armourChar = makeCharacter("Vex", { controlledby: "p1" });
   const armour = await PT.sheets.addItem(armourChar, {
-    name: "Chain Mail", qty: 1,
+    name: "Amulet of Health", qty: 1,
     datarecords: JSON.stringify([
-      { payload: JSON.stringify({ type: "Item", name: "Chain Mail", armorData: { ac: 16 } }) },
-      { payload: JSON.stringify({ type: "ArmorClass", value: 16 }) }
+      { payload: JSON.stringify({ type: "Item", name: "Amulet of Health", armorData: { ac: 16 } }) },
+      { payload: JSON.stringify({ type: "Attunement" }) }
     ])
   });
-  check("an unknown record type is named, so a bug report can point at it",
-    armour.unwritten === 1 && armour.unwrittenTypes.join(",") === "ArmorClass",
+  check("a type with no rule yet is named, so a bug report can point at it",
+    armour.unwritten === 1 && armour.unwrittenTypes.join(",") === "Attunement",
     armour.unwritten + " / " + JSON.stringify(armour.unwrittenTypes));
   check("the item itself still lands with its own data",
     integrantsOf(armourChar)[armour.id].armorData.ac === 16,
     JSON.stringify(integrantsOf(armourChar)[armour.id].armorData));
+  check("and the item is written even though part of it was not",
+    integrantsOf(armourChar)[armour.id].name === "Amulet of Health");
   check("a weapon reports nothing unwritten", add.unwrittenTypes.length === 0,
     JSON.stringify(add.unwrittenTypes));
 
@@ -517,9 +605,9 @@ const SHEET_GRAPH = JSON.stringify([
       { name: "Rope", datarecords: JSON.stringify([{ payload: JSON.stringify({ type: "Item", name: "Rope" }) }]) },
       // The armour shape we don't know yet: an Item plus something with no
       // rule. Whatever that turns out to be, this is how it should read.
-      { name: "Chain Mail", datarecords: JSON.stringify([
-        { payload: JSON.stringify({ type: "Item", name: "Chain Mail", armorData: { ac: 16 } }) },
-        { payload: JSON.stringify({ type: "ArmorClass", value: 16 }) }
+      { name: "Amulet of Health", datarecords: JSON.stringify([
+        { payload: JSON.stringify({ type: "Item", name: "Amulet of Health" }) },
+        { payload: JSON.stringify({ type: "Attunement" }) }
       ]) },
       { name: "A Strangely Warm Rock" }
     ] } }] })
@@ -532,13 +620,13 @@ const SHEET_GRAPH = JSON.stringify([
     survey.items.find(i => i.name === "Longsword").unwritten.length === 0);
   check("a plain item reports a single Item record",
     survey.items.find(i => i.name === "Rope").types.join("+") === "Item");
-  check("an item with an unknown record type is flagged",
-    survey.items.find(i => i.name === "Chain Mail").unwritten.join(",") === "ArmorClass",
-    JSON.stringify(survey.items.find(i => i.name === "Chain Mail").unwritten));
+  check("an item with a type we have no rule for is flagged",
+    survey.items.find(i => i.name === "Amulet of Health").unwritten.join(",") === "Attunement",
+    JSON.stringify(survey.items.find(i => i.name === "Amulet of Health").unwritten));
   check("a manual item is described, not treated as broken",
     /no payload/.test(survey.items.find(i => i.name === "A Strangely Warm Rock").types));
   check("it groups by payload shape, so a big inventory collapses to cases",
-    survey.byShape["Item"] === 1 && survey.byShape["Item+ArmorClass"] === 1,
+    survey.byShape["Item"] === 1 && survey.byShape["Item+Attunement"] === 1,
     JSON.stringify(survey.byShape));
   check("the verdict names what needs work",
     /1 item\(s\)/.test(survey.verdict) && survey.needsWork.length === 1, survey.verdict);

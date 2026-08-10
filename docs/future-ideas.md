@@ -338,9 +338,12 @@ properly. Ten items, eight distinct payload shapes:
 | `Item+Attunement+Attack+Damage+Attack+Damage+Action+Resource+Healing+Action+Resource` | Acheron Longsword | **partly** — it swings, but loses its magic |
 | no payload | two amulets | n/a (name-only fallback) |
 
-So the record types still needing rules are:
-**`Armor Class`, `Defense`, `Attunement`, `Ability Score`, `Action`,
-`Resource`, `Healing`.**
+Record types with rules: `Item`, `Attack`, `Damage` (v0.9.6),
+`Armor Class`, `Defense` (v0.9.15).
+
+Still needing rules: **`Attunement`, `Ability Score`, `Action`, `Resource`,
+`Healing`** — i.e. magic items. A magic weapon already swings correctly; what
+it loses is its magic.
 
 ### The trap: order is NOT stable outside Attack/Damage
 
@@ -354,8 +357,7 @@ armour in the game.
 
 ### Priority
 
-1. **Armour** (`Armor Class`, `Defense`) — most common, and currently
-   silently useless: the piece equips and shows, and grants nothing.
+1. ~~**Armour**~~ — done in v0.9.15.
 2. **Attunement** — appears on both the amulet and the magic longsword, so
    one rule covers several shapes.
 3. **`Action`/`Resource`/`Healing`** — magic item abilities. The Acheron
@@ -386,23 +388,46 @@ but the AC value itself (14) is in the separate `Armor Class` record, which
 is not. That is exactly why a claimed breastplate equips, displays, and
 grants nothing.
 
-**The collision that blocks guessing the wiring.** On a sheet-made Attack
-record, `source: "Item"` and `sourceID: <itemId>` denote provenance — which
-record created this one. But the compendium's `Armor Class` payload already
-carries `source: "Armor"`, which is plainly semantic: it says where the AC
-comes from, and probably feeds the calculation. Applying the weapon rule
-verbatim would overwrite `"Armor"` with `"Item"` and likely break the AC
-calculation in a way that still looks fine on screen.
+**Both halves captured, and armour is BUILT (v0.9.15).** The sheet side came
+from a Breastplate Roll20 itself added:
 
-So the remaining unknown is narrow but real: **on a sheet-made piece of
-armour, what do the `Armor Class` and `Defense` records look like** — does
-`source` stay `"Armor"`, is provenance held in another field, and do they
-carry `cascades: {itemId: "[\"Equip\"]"}` like attacks do?
+```js
+Item         armorData:{ability:"Dexterity", bonusCap:2, category:"Medium", type:"Breastplate"}
+             childIDs: "[<acId>]"
+             equipData:{equippable:true, equipped:true}
 
-**Settles it:** add armour to a character through Roll20's own sheet UI, then
-`PT.sheets.weaponDump("Character", "Breastplate")`. One dump and the rule can
-be written; the shape of it is otherwise a coin flip on a field that decides
-whether AC computes.
+Armor Class  parentID: <itemId>            <- child of the Item, like an Attack
+             source: "Armor"               <- PRESERVED, not provenance "Item"
+             calculation: "Set Base"
+             valueFormula: {flatValue: 14} <- the AC value, and the whole point
+             name: "Breastplate AC"        <- "<item> AC"; the payload has none
+             defaultAbility: false
+             NO sourceID.  NO cascades.
+```
+
+**Armour differs from an attack in exactly three ways, and generalising the
+weapon rule would have got all three wrong:**
+
+| | Attack | Armor Class |
+|---|---|---|
+| `sourceID` | `<itemId>` | absent |
+| `cascades` | `{itemId: "[\"Equip\"]"}` | absent |
+| `source` | `"Item"` (provenance) | `"Armor"` (semantic, from the payload) |
+
+That last one is the dangerous one: same field name, different meaning.
+Overwriting `"Armor"` with `"Item"` would most likely have broken the AC
+calculation while still looking correct on screen — a number silently wrong
+in combat.
+
+Armour records are also attached **by type, not by position**, because the
+same two records arrive as `[Armor Class, Defense]` on one piece and
+`[Defense, Armor Class]` on another.
+
+`Defense` is written the same way. Its sheet form was NOT captured — the
+Breastplate used for the dump is plain, and only adamantine armour carries a
+Defense record — so it is written by the same rule as Armor Class, which is
+an extrapolation over inert structural fields rather than semantic ones.
+**Worth eyeballing on a real adamantine piece before trusting it.**
 
 ### The two dumps for each
 
