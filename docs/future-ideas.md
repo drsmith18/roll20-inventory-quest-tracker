@@ -339,11 +339,12 @@ properly. Ten items, eight distinct payload shapes:
 | no payload | two amulets | n/a (name-only fallback) |
 
 Record types with rules: `Item`, `Attack`, `Damage` (v0.9.6),
-`Armor Class`, `Defense` (v0.9.15).
+`Armor Class`, `Defense` (v0.9.15), `Attunement`, `Ability Score` (v0.9.16).
 
-Still needing rules: **`Attunement`, `Ability Score`, `Action`, `Resource`,
-`Healing`** — i.e. magic items. A magic weapon already swings correctly; what
-it loses is its magic.
+Still needing rules: **`Action`, `Resource`, `Healing`** — activatable magic
+item abilities. The Acheron Longsword is the only surveyed item that has
+them; it already swings and is now attunable, but its two usable powers are
+not written.
 
 ### The trap: order is NOT stable outside Attack/Damage
 
@@ -358,12 +359,12 @@ armour in the game.
 ### Priority
 
 1. ~~**Armour**~~ — done in v0.9.15.
-2. **Attunement** — appears on both the amulet and the magic longsword, so
-   one rule covers several shapes.
+2. ~~**Attunement**~~ — done in v0.9.16.
 3. **`Action`/`Resource`/`Healing`** — magic item abilities. The Acheron
-   Longsword shows two `Action`+`Resource` groups plus a `Healing`, so these
-   probably do group by order like Attack/Damage. Worth confirming rather
-   than assuming, given the armour finding above.
+   Longsword shows two `Action`+`Resource` groups plus a `Healing`, which
+   *looks* like the Attack/Damage pattern of grouping by order. Do not act on
+   that: armour turned out to be order-independent, and the amulet turned out
+   to nest. Get the dumps.
 4. **Containers** — not seen in this survey; extra `Item` records.
 
 ### Armour: the compendium side, captured (Aug 2026)
@@ -428,6 +429,38 @@ Breastplate used for the dump is plain, and only adamantine armour carries a
 Defense record — so it is written by the same rule as Armor Class, which is
 an extrapolation over inert structural fields rather than semantic ones.
 **Worth eyeballing on a real adamantine piece before trusting it.**
+
+### Magic items: the attunement chain, captured (Aug 2026)
+
+An Amulet of Health that Roll20 itself added. This one is a **chain**, and a
+flat rule would have got it wrong:
+
+```
+Item (Amulet of Health)
+  childIDs: [<attunementId>]
+  └─ Attunement          parentID: <itemId>
+                         requireEquip: true      <- from the payload
+                         _attuned: true          <- the character's own choice
+                         name: "Amulet of Health Attunement"
+                         source: ""   NO sourceID.  NO cascades.
+       └─ Ability Score  parentID: <ATTUNEMENT id>   <- NOT the item
+                         ability:"Constitution", calculation:"Minimum",
+                         valueFormula:{flatValue:19}
+                         name: "Amulet of Health Constitution"
+```
+
+**The effect hangs off the attunement, not the item** — which is exactly
+right: no attunement, no Constitution. Armour's records sat directly on the
+item, so "item children" was not a general rule; parentage is per type.
+
+Naming is also per type: `"<item> AC"`, `"<item> Attunement"`, and — using
+the ability rather than the type — `"<item> Constitution"`.
+
+**One deliberate divergence from the captured record.** The sheet's
+Attunement read `_attuned: true`; a claim writes `false`. Attunement slots
+are limited to three, and silently spending one is worse than the player
+ticking a box. The item's effects switch on when they attune it, which is
+also the correct rule.
 
 ### The two dumps for each
 

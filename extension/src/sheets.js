@@ -387,7 +387,7 @@
         if (!seenAttack) types.push("Damage");
         return;
       }
-      if (ITEM_CHILD_TYPES[p.type]) return;   // written as item children
+      if (CHILD_TYPES[p.type]) return;         // written as item children
       types.push(p.type);
     });
     return { count: types.length, types: types };
@@ -430,102 +430,133 @@
   //     not the provenance "Item" an Attack gets. Same field name, different
   //     meaning, and overwriting it would likely break the AC calculation
   //     while still looking right on screen.
-  var ITEM_CHILD_TYPES = { "Armor Class": true, "Defense": true };
+  // Record types that hang off the item (or off each other) and are NOT
+  // attacks. Each captured from a record Roll20 itself wrote:
+  //
+  //   Armor Class, Defense   children of the Item      (Breastplate)
+  //   Attunement             child of the Item         (Amulet of Health)
+  //   Ability Score          child of the ATTUNEMENT    (Amulet of Health)
+  //
+  // That last one is the shape a flat rule would have missed: the amulet's
+  // Constitution effect hangs off the attunement, not the item, which is
+  // exactly right — no attunement, no effect.
+  //
+  // None of these carry `sourceID` or `cascades`, unlike an Attack, and none
+  // has its `source` overwritten: an Armor Class record's "Armor" is
+  // meaningful, and the rest simply have "".
+  var CHILD_TYPES = { "Armor Class": true, "Defense": true, "Attunement": true, "Ability Score": true };
+
+  // The sheet names these after the item, with a per-type suffix:
+  // "Breastplate AC", "Amulet of Health Attunement", and — using the ability
+  // rather than the type — "Amulet of Health Constitution".
+  function childRecordName(type, itemName, p) {
+    var base = itemName || "";
+    if (type === "Armor Class") return (base + " AC").trim();
+    if (type === "Ability Score") return (base + " " + (p.ability || type)).trim();
+    return (base + " " + type).trim();
+  }
 
   function buildAttacks(datarecords, itemId, itemName, pageId) {
     var all = allPayloads(datarecords);
     if (!all) return null;
 
-    var records = {}, attackIds = [], childIds = [], unwritten = 0;
-    var attack = null, damageIds = null;
+    var records = {}, attackIds = [], unwritten = 0;
+    // parentId -> [childId]. Collected as we go and applied at the end, so
+    // one rule serves attacks, damage and the nested item children alike.
+    var childrenOf = {};
+    function addChild(parentId, childId) {
+      (childrenOf[parentId] = childrenOf[parentId] || []).push(childId);
+    }
+    // The most recent Attack (Damage attaches to it) and the most recent
+    // Attunement (an Ability Score attaches to that when there is one).
+    var attackId = null, attunementId = null;
 
-    function closeAttack() {
-      if (attack) attack.childIDs = JSON.stringify(damageIds);
+    function structural(rec, p) {
+      rec._id = PT.uid();
+      rec._enabled = true;
+      if (rec.label === undefined) rec.label = "";
+      if (!rec.shortID) rec.shortID = shortId();
+      if (!rec.createdTime) rec.createdTime = Date.now();
+      if (pageId && !rec.compendiumPageID) rec.compendiumPageID = pageId;
+      return rec;
     }
 
     for (var i = 0; i < all.length; i++) {
       var p = all[i];
       if (p.type === "Item") continue;               // the caller writes this
+
       if (p.type === "Attack") {
-        closeAttack();
-        var a = JSON.parse(JSON.stringify(p));
-        a._id = PT.uid();
+        var a = structural(JSON.parse(JSON.stringify(p)), p);
         a.parentID = itemId;
         a.sourceID = itemId;
         a.source = "Item";
         a.cascades = equipCascade(itemId);
-        a.childIDs = "[]";
-        a._enabled = true;
         if (!a.actionType) a.actionType = "Action";
-        if (a.label === undefined) a.label = "";
         if (!a.name) a.name = "Attack";
         if (!a.recordName) a.recordName = a.name;
-        if (!a.shortID) a.shortID = shortId();
-        if (!a.createdTime) a.createdTime = Date.now();
-        if (pageId && !a.compendiumPageID) a.compendiumPageID = pageId;
         records[a._id] = a;
+        addChild(itemId, a._id);
         attackIds.push(a._id);
-        childIds.push(a._id);
-        attack = a;
-        damageIds = [];
+        attackId = a._id;
+
       } else if (p.type === "Damage") {
-        if (!attack) { unwritten++; continue; }
-        var d = JSON.parse(JSON.stringify(p));
-        d._id = PT.uid();
-        d.parentID = attack._id;                     // child of the ATTACK
-        d.sourceID = itemId;                         // but sourced from the ITEM
+        // Damage is the one type paired by ORDER — it belongs to the Attack
+        // it follows. With no preceding Attack there is nowhere to put it.
+        if (!attackId) { unwritten++; continue; }
+        var d = structural(JSON.parse(JSON.stringify(p)), p);
+        d.parentID = attackId;
+        d.sourceID = itemId;                         // the ITEM, not the attack
         d.source = "Item";
         d.cascades = equipCascade(itemId);
-        d.childIDs = "[]";
-        d._enabled = true;
-        // The sheet stores dice as diceSize "d8" plus a separate count; the
-        // payload omits the count, and every observed record had 1.
         if (d._diceCount === undefined) d._diceCount = 1;
         if (d.critDiceSize === undefined) d.critDiceSize = "";
         if (d.overrideCrit === undefined) d.overrideCrit = false;
-        if (d.label === undefined) d.label = "";
-        // Payload Damage records carry no name; the sheet's own are named
-        // after their attack ("Longsword Damage One-Handed").
-        if (!d.name) d.name = (attack.name || "Attack") + " Damage";
+        if (!d.name) d.name = (records[attackId].name || "Attack") + " Damage";
         if (!d.recordName) d.recordName = d.name;
-        if (!d.shortID) d.shortID = shortId();
-        if (!d.createdTime) d.createdTime = Date.now();
-        if (pageId && !d.compendiumPageID) d.compendiumPageID = pageId;
         records[d._id] = d;
-        damageIds.push(d._id);
-      } else if (ITEM_CHILD_TYPES[p.type]) {
-        // Order-independent, unlike Damage: these attach to the item, not to
-        // whatever preceded them. That matters — the same two records arrive
-        // as [Armor Class, Defense] on one piece of armour and
-        // [Defense, Armor Class] on another, so a rule that paired by
-        // position would be wrong half the time.
-        var c = JSON.parse(JSON.stringify(p));
-        c._id = PT.uid();
-        c.parentID = itemId;
-        c.childIDs = "[]";
-        c._enabled = true;
-        if (c.label === undefined) c.label = "";
-        if (!c.name) {
-          c.name = itemName
-            ? itemName + (p.type === "Armor Class" ? " AC" : " " + p.type)
-            : p.type;
-        }
+        addChild(attackId, d._id);
+
+      } else if (CHILD_TYPES[p.type]) {
+        // Attached by TYPE, not position: real armour carries these two in
+        // either order ([Armor Class, Defense] and [Defense, Armor Class]),
+        // so pairing by position would be wrong half the time.
+        var c = structural(JSON.parse(JSON.stringify(p)), p);
+        c.parentID = p.type === "Ability Score" ? (attunementId || itemId) : itemId;
+        if (!c.name) c.name = childRecordName(p.type, itemName, p);
         if (!c.recordName) c.recordName = c.name;
-        if (!c.shortID) c.shortID = shortId();
-        if (!c.createdTime) c.createdTime = Date.now();
-        if (pageId && !c.compendiumPageID) c.compendiumPageID = pageId;
-        // Present on the sheet's own AC record and absent from the payload.
+        // Every observed sheet record has a source field; only Armor Class
+        // has a meaningful value, so fill in "" rather than inventing one.
+        if (c.source === undefined) c.source = "";
         if (p.type === "Armor Class" && c.defaultAbility === undefined) c.defaultAbility = false;
-        // NOT set, per the captured record: sourceID, cascades, and `source`
-        // — the payload's own source is the meaningful one here.
+        // Left alone deliberately: sourceID and cascades, which none of these
+        // carry on the sheet.
+        if (p.type === "Attunement" && c._attuned === undefined) {
+          // NOT auto-attuned. The observed record read true, but that is a
+          // character's own choice and attunement slots are limited to three
+          // — silently spending one would be worse than the player ticking a
+          // box. Left false, so the item's effects switch on when they attune.
+          c._attuned = false;
+        }
         records[c._id] = c;
-        childIds.push(c._id);
+        addChild(c.parentID, c._id);
+        if (p.type === "Attunement") attunementId = c._id;
+
       } else {
         unwritten++;
       }
     }
-    closeAttack();
-    return { records: records, attackIds: attackIds, childIds: childIds, unwritten: unwritten };
+
+    // childIDs is a STRING holding a JSON array; apply it once, everywhere.
+    Object.keys(records).forEach(function (id) {
+      records[id].childIDs = JSON.stringify(childrenOf[id] || []);
+    });
+
+    return {
+      records: records,
+      attackIds: attackIds,
+      childIds: childrenOf[itemId] || [],   // the item's own direct children
+      unwritten: unwritten
+    };
   }
 
   // childIDs is a STRING holding a JSON array on the sheet. The compendium

@@ -57,6 +57,19 @@ const CHAIN_SHIRT = JSON.stringify([
   { payload: JSON.stringify({ type: "Armor Class", calculation: "Set Base", source: "Armor", valueFormula: { flatValue: 13 } }) }
 ]);
 
+// Captured with payloadDump (Aug 2026). Three records, and the effect is
+// NOT a sibling of the item — see the assertions below.
+const AMULET = JSON.stringify([
+  { payload: JSON.stringify({
+    type: "Item", name: "Amulet of Health",
+    description: "Your Constitution is 19 while you wear this amulet...",
+    weight: "1", properties: [], cost: "4005 GP", rarity: "Rare",
+    equipData: { equippable: true }
+  }) },
+  { payload: JSON.stringify({ type: "Attunement", requireEquip: true }) },
+  { payload: JSON.stringify({ type: "Ability Score", ability: "Constitution", calculation: "Minimum", valueFormula: { flatValue: 19 } }) }
+]);
+
 // Sheet-sourced: ids and links present, so the full graph can be rewired.
 const SHEET_GRAPH = JSON.stringify([
   { payload: JSON.stringify({ _id: "ls", type: "Item", name: "Longsword", quantity: 1, parentID: "inventory", childIDs: '["atk"]', weight: 3, cost: "15 GP", weaponData: { category: "Melee" }, equipData: { equippable: true } }) },
@@ -224,6 +237,68 @@ const SHEET_GRAPH = JSON.stringify([
   check("neither attached itself to the other",
     sKids.every(r => r.parentID === shirt.id), JSON.stringify(sKids.map(r => r.parentID)));
 
+  // Magic items. Asserted against an Amulet of Health that Roll20 itself put
+  // on a character (weaponDump, Aug 2026). The shape is a CHAIN, not a flat
+  // set — the effect hangs off the attunement, not the item.
+  section("magic items: the effect hangs off the attunement:");
+  const amuletChar = makeCharacter("Vex", { controlledby: "p1" });
+  const am = await PT.sheets.addItem(amuletChar, {
+    name: "Amulet of Health", qty: 1,
+    datarecords: AMULET, compendiumPageID: "66e80318fc2ee400308b4730"
+  });
+  check("the write succeeds", am.ok, am.err);
+  check("all three records are written", am.records === 3, am.records);
+  check("nothing is left unwritten", am.unwritten === 0, JSON.stringify(am.unwrittenTypes));
+
+  const mInts = integrantsOf(amuletChar);
+  const amItem = mInts[am.id];
+  const amKids = JSON.parse(amItem.childIDs);
+  check("the item has exactly ONE child, the attunement", amKids.length === 1, amItem.childIDs);
+  const attune = mInts[amKids[0]];
+  check("that child is the Attunement", attune.type === "Attunement", attune.type);
+  check("the attunement is parented to the item", attune.parentID === am.id, attune.parentID);
+  check("requireEquip survived from the payload", attune.requireEquip === true, attune.requireEquip);
+  check("it is named as the sheet names it",
+    attune.name === "Amulet of Health Attunement", attune.name);
+  // Deliberately NOT auto-attuned: attunement slots are limited to three and
+  // spending one silently would be worse than the player ticking a box.
+  check("it is NOT auto-attuned", attune._attuned === false, attune._attuned);
+
+  const abilityId = JSON.parse(attune.childIDs)[0];
+  const ability = mInts[abilityId];
+  check("the Ability Score is a child of the ATTUNEMENT, not the item",
+    ability && ability.parentID === attune._id, ability && ability.parentID);
+  check("it is NOT a child of the item",
+    !amKids.includes(abilityId), amItem.childIDs);
+  check("the effect itself came across",
+    ability.ability === "Constitution" && ability.valueFormula.flatValue === 19,
+    JSON.stringify(ability.valueFormula));
+  check("calculation survived", ability.calculation === "Minimum", ability.calculation);
+  check("it is named after the ABILITY, as the sheet names it",
+    ability.name === "Amulet of Health Constitution", ability.name);
+  check("neither carries sourceID or cascades, unlike an Attack",
+    attune.sourceID === undefined && attune.cascades === undefined &&
+    ability.sourceID === undefined && ability.cascades === undefined);
+  check("both get an empty source, as the sheet's own records do",
+    attune.source === "" && ability.source === "", attune.source + "/" + ability.source);
+  check("the page id reaches the whole chain",
+    ability.compendiumPageID === "66e80318fc2ee400308b4730", ability.compendiumPageID);
+
+  // An Ability Score with no Attunement in front of it must still land
+  // somewhere sensible rather than being dropped.
+  const looseChar = makeCharacter("Vex", { controlledby: "p1" });
+  const loose = await PT.sheets.addItem(looseChar, {
+    name: "Odd Charm", qty: 1,
+    datarecords: JSON.stringify([
+      { payload: JSON.stringify({ type: "Item", name: "Odd Charm" }) },
+      { payload: JSON.stringify({ type: "Ability Score", ability: "Strength", valueFormula: { flatValue: 21 } }) }
+    ])
+  });
+  const lInts = integrantsOf(looseChar);
+  check("an Ability Score with no attunement falls back to the item",
+    lInts[JSON.parse(lInts[loose.id].childIDs)[0]].parentID === loose.id);
+  check("and is not counted as unwritten", loose.unwritten === 0, loose.unwritten);
+
   // A weapon must be untouched by the armour rule.
   section("the weapon path is unaffected:");
   check("a weapon still writes 5 records with 2 attacks",
@@ -283,11 +358,11 @@ const SHEET_GRAPH = JSON.stringify([
     name: "Amulet of Health", qty: 1,
     datarecords: JSON.stringify([
       { payload: JSON.stringify({ type: "Item", name: "Amulet of Health", armorData: { ac: 16 } }) },
-      { payload: JSON.stringify({ type: "Attunement" }) }
+      { payload: JSON.stringify({ type: "Action", name: "Invoke" }) }
     ])
   });
   check("a type with no rule yet is named, so a bug report can point at it",
-    armour.unwritten === 1 && armour.unwrittenTypes.join(",") === "Attunement",
+    armour.unwritten === 1 && armour.unwrittenTypes.join(",") === "Action",
     armour.unwritten + " / " + JSON.stringify(armour.unwrittenTypes));
   check("the item itself still lands with its own data",
     integrantsOf(armourChar)[armour.id].armorData.ac === 16,
@@ -607,7 +682,7 @@ const SHEET_GRAPH = JSON.stringify([
       // rule. Whatever that turns out to be, this is how it should read.
       { name: "Amulet of Health", datarecords: JSON.stringify([
         { payload: JSON.stringify({ type: "Item", name: "Amulet of Health" }) },
-        { payload: JSON.stringify({ type: "Attunement" }) }
+        { payload: JSON.stringify({ type: "Action", name: "Invoke" }) }
       ]) },
       { name: "A Strangely Warm Rock" }
     ] } }] })
@@ -621,12 +696,12 @@ const SHEET_GRAPH = JSON.stringify([
   check("a plain item reports a single Item record",
     survey.items.find(i => i.name === "Rope").types.join("+") === "Item");
   check("an item with a type we have no rule for is flagged",
-    survey.items.find(i => i.name === "Amulet of Health").unwritten.join(",") === "Attunement",
+    survey.items.find(i => i.name === "Amulet of Health").unwritten.join(",") === "Action",
     JSON.stringify(survey.items.find(i => i.name === "Amulet of Health").unwritten));
   check("a manual item is described, not treated as broken",
     /no payload/.test(survey.items.find(i => i.name === "A Strangely Warm Rock").types));
   check("it groups by payload shape, so a big inventory collapses to cases",
-    survey.byShape["Item"] === 1 && survey.byShape["Item+Attunement"] === 1,
+    survey.byShape["Item"] === 1 && survey.byShape["Item+Action"] === 1,
     JSON.stringify(survey.byShape));
   check("the verdict names what needs work",
     /1 item\(s\)/.test(survey.verdict) && survey.needsWork.length === 1, survey.verdict);
