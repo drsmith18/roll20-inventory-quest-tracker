@@ -749,6 +749,94 @@
     return o;
   }
 
+  // ROUTE 1, step 3. Find the relay behind the drop target.
+  //
+  // The drop handler, read off a live sheet, turned out NOT to read the
+  // dragged element at all:
+  //
+  //   drop(S) { ... window.wantsToReceiveDrop(this, S, () => {
+  //     const {pageName, categoryName, expansionId} = C.compendiumDropData;
+  //     C.relay.dropOver({ coordinates: {...}, dropData: {pageName, categoryName, expansionId} });
+  //   }) }
+  //
+  // So synthesising a drag was never going to work: the payload comes from
+  // the component's own `compendiumDropData`, and the real entry point is
+  // `relay.dropOver`, which takes exactly the three fields a drop already
+  // stores. This probe looks for that relay — on the element's framework
+  // internals and up its parent chain — and reports where it found one.
+  //
+  // Read-only. It locates dropOver; it does not call it.
+  PT.sheets.probeDropRelay = function () {
+    var out = {
+      version: PT.VERSION,
+      wantsToReceiveDrop: typeof window.wantsToReceiveDrop,
+      found: []
+    };
+    var el = document.querySelector(".charsheet-compendium-drop-target");
+    if (!el) {
+      out.error = "no .charsheet-compendium-drop-target in the DOM — open a character sheet and leave it open";
+      return logRelay(out);
+    }
+    out.elementInternals = Object.keys(el).filter(function (k) {
+      return k.charAt(0) === "_" || k.charAt(0) === "$";
+    });
+
+    // Candidate roots: framework internals hung off the element and each of
+    // its ancestors. Vue puts __vueParentComponent / __vnode on the node;
+    // older builds used __vue__.
+    var roots = [], node = el, depth = 0;
+    while (node && depth++ < 10) {
+      ["__vueParentComponent", "__vue__", "__vnode", "_reactRootContainer"].forEach(function (key) {
+        if (node[key]) roots.push({ path: "<" + (node.className || node.tagName) + ">." + key, obj: node[key] });
+      });
+      node = node.parentElement;
+    }
+    out.rootsFound = roots.map(function (r) { return r.path; });
+    if (!roots.length) {
+      out.error = "no framework internals on the drop target or its ancestors — the component isn't reachable this way";
+      return logRelay(out);
+    }
+
+    // Bounded search for the things the handler uses. Capped hard: this runs
+    // on a live VTT page and must not walk the whole object graph.
+    var seen = new Set(), visited = 0, MAX = 6000;
+    function walk(obj, path, depth) {
+      if (!obj || visited > MAX || depth > 5) return;
+      if (typeof obj !== "object" && typeof obj !== "function") return;
+      if (seen.has(obj)) return;
+      seen.add(obj);
+      visited++;
+      var keys;
+      try { keys = Object.keys(obj); } catch (e) { return; }
+      for (var i = 0; i < keys.length && visited <= MAX; i++) {
+        var k = keys[i], v;
+        try { v = obj[k]; } catch (e) { continue; }
+        if (v && typeof v === "object" && typeof v.dropOver === "function") {
+          out.found.push({ what: "relay.dropOver", at: path + "." + k, relayKeys: Object.keys(v).slice(0, 30).join(",") });
+        }
+        if (k === "compendiumDropData" && v && typeof v === "object") {
+          out.found.push({ what: "compendiumDropData", at: path + "." + k, keys: Object.keys(v).join(","), value: JSON.stringify(v).slice(0, 300) });
+        }
+        if (k === "activeDrop") {
+          out.found.push({ what: "activeDrop", at: path + "." + k, value: String(v) });
+        }
+        if (v && (v instanceof Node || v instanceof Window)) continue;  // never walk the DOM
+        walk(v, path + "." + k, depth + 1);
+      }
+    }
+    roots.forEach(function (r) { walk(r.obj, r.path, 0); });
+    out.objectsVisited = visited;
+    out.note = out.found.length
+      ? "A relay with dropOver is reachable. Next: call it with {coordinates:{left,top}, dropData:{pageName, categoryName, expansionId}} — the same three fields drops.js already stores per item."
+      : "Nothing found within the search bounds. The component may keep the relay in a closure, which would rule this route out.";
+    return logRelay(out);
+  };
+
+  function logRelay(o) {
+    console.log("[PartyTools] probeDropRelay:\n" + JSON.stringify(o, null, 2));
+    return o;
+  }
+
   // ROUTE 2. Does the sheet enrich a record that carries only a
   // compendiumPageID? Writes a deliberately BARE item — a name, a page id,
   // and nothing else, no weaponData, no attacks — then waits and re-reads to

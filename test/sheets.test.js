@@ -431,6 +431,41 @@ const SHEET_GRAPH = JSON.stringify([
   check("the compendium-drop probe degrades without jQuery UI",
     !!PT.sheets.probeCompendiumDrop().error);
 
+  // The relay search: it runs on a live VTT page, so the properties that
+  // matter are that it finds a dropOver without walking the DOM or the whole
+  // object graph, and that it stops cleanly when there's nothing to find.
+  section("the relay probe:");
+  check("it reports when there's no drop target in the DOM",
+    /no \.charsheet-compendium-drop-target/.test(PT.sheets.probeDropRelay().error || ""));
+  const target = win.document.createElement("div");
+  target.className = "charsheet-compendium-drop-target";
+  win.document.body.appendChild(target);
+  const relay = { dropOver: function () {}, dropLeave: function () {} };
+  const cyclic = { name: "loops back" };
+  cyclic.self = cyclic;
+  target.__vueParentComponent = {
+    ctx: {
+      activeDrop: true,
+      compendiumDropData: { pageName: "Items:Longsword", categoryName: "Items", expansionId: "33335" },
+      relay: relay,
+      cyclic: cyclic,
+      // A DOM reference the walk must refuse to descend into.
+      $el: win.document.body
+    }
+  };
+  const rel = PT.sheets.probeDropRelay();
+  check("it finds the relay's dropOver",
+    rel.found.some(f => f.what === "relay.dropOver"), JSON.stringify(rel.found));
+  check("it finds compendiumDropData and shows its shape",
+    rel.found.some(f => f.what === "compendiumDropData" && /pageName/.test(f.keys)),
+    JSON.stringify(rel.found.filter(f => f.what === "compendiumDropData")));
+  check("it finds the activeDrop gate",
+    rel.found.some(f => f.what === "activeDrop"), JSON.stringify(rel.found));
+  check("it reports where each was found, not just that it was",
+    rel.found.every(f => typeof f.at === "string" && f.at.length), JSON.stringify(rel.found));
+  check("a cycle doesn't hang it", rel.objectsVisited > 0 && rel.objectsVisited < 6000, rel.objectsVisited);
+  target.remove();
+
   // With a stubbed ddmanager holding a target shaped like the real one
   // (found on a live sheet as `charsheet-compendium-drop-target`).
   const el = win.document.createElement("div");
@@ -454,6 +489,7 @@ const SHEET_GRAPH = JSON.stringify([
     /data-pagename/.test(cd.targets[0].dropHandler), cd.targets[0].dropHandler);
   check("it reports the ancestry so we know where it lives",
     /DIV/.test(cd.targets[0].ancestry), cd.targets[0].ancestry);
+  el.remove();
   delete win.$;
 
   win.Campaign.characters.models = [hero2];

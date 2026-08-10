@@ -229,11 +229,49 @@ properly — attacks, damage, mastery and all — and it is registered in
 `visible: false` is expected: the target is presumably only shown mid-drag,
 and being invisible does not stop its handler being invoked directly.
 
-**Next step, and it is a small one:** `PT.sheets.probeCompendiumDrop()` reads
-that droppable's `accept` and its `drop` handler source. Once we know what
-the handler reads off the dragged element — `drops.js` already knows a
-compendium drag carries `data-pagename` and `data-expansionid` — a
-synthesised jQuery UI drop can very likely be handed straight to it.
+**The handler, captured (Aug 2026).** `probeCompendiumDrop()` returned its
+source, and it changes the approach:
+
+```js
+accept: ".compendium-item, .compendium-page__upper"
+
+drop(S) {
+  S.originalEvent.dropHandled = true;
+  C.activeDrop && (C.dragOver = false, window.wantsToReceiveDrop(this, S, () => {
+    const {pageName, categoryName, expansionId} = C.compendiumDropData;
+    C.relay.dropOver({
+      coordinates: {left, top},
+      dropData: {pageName, categoryName, expansionId}
+    });
+  }));
+}
+```
+
+**It never reads the dragged element.** The payload comes from the
+component's own `compendiumDropData`, and the real work is
+`C.relay.dropOver(...)`. So synthesising a jQuery drag was the wrong idea —
+but the finding is better than that, because `dropOver` takes exactly the
+three fields a drop already stores per item (`pageName`, `categoryName`,
+`expansionId` — `drops.js` has all three).
+
+Two other things the handler tells us:
+
+- it is gated on `C.activeDrop`, which a real drag sets;
+- `window.wantsToReceiveDrop` is a GLOBAL, so it is reachable from a content
+  script.
+
+The remaining question is whether `C` — and its `relay` — can be reached from
+outside. `PT.sheets.probeDropRelay()` searches the drop target's framework
+internals and its ancestors' for an object with a `dropOver` method, bounded
+so it can't walk the whole page. If the relay lives in a closure with no
+reference hung off the DOM, this route closes.
+
+**Note the constraint either way:** the target sits inside the sheet dialog
+(`.charsheet-compendium-drop-target < .iframeHolder < .handout-dialog`), so
+the character sheet has to be OPEN for this to work. The hand-written record
+path does not have that limitation, so the likely end state is drop-route
+when the sheet is open, record-writing otherwise — not a straight
+replacement.
 
 If that works, claiming becomes: put the item's compendium reference in front
 of Roll20's own handler and let it build the records. Armour, magic items and
