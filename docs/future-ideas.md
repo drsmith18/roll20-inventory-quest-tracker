@@ -80,7 +80,8 @@ is why longswords arrived as possessions.
 v0.9.2 uses the compendium's own **Item** record as the base instead of
 synthesising one. That carries `weaponData` (`{category, training, type}`),
 `equipData.equippable`, `properties` and the full description, which is what
-makes the sheet treat it as a weapon.
+makes the sheet treat it as a weapon. **Confirmed working at the table** —
+a claimed longsword now shows as a weapon rather than a possession.
 
 **Still open:** the other four records (Attack, two Damage, Mastery on a
 longsword) are not written. Nothing in the payload says how they attach to
