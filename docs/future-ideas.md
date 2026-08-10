@@ -364,6 +364,46 @@ armour in the game.
    than assuming, given the armour finding above.
 4. **Containers** — not seen in this survey; extra `Item` records.
 
+### Armour: the compendium side, captured (Aug 2026)
+
+`payloadDump("Adamantine Breastplate")` — three records:
+
+```js
+{type:"Item", name:"Adamantine Breastplate", weight:20, cost:"800 GP",
+ rarity:"Uncommon", properties:[],
+ armorData:{category:"Medium", type:"Breastplate", bonusCap:2, ability:"Dexterity"},
+ equipData:{equippable:true}}
+
+{type:"Armor Class", calculation:"Set Base", source:"Armor",
+ valueFormula:{flatValue:14}}
+
+{type:"Defense", defense:"Immunity", damage:"Critical Hit",
+ details:"...any Critical Hit against you becomes a normal hit."}
+```
+
+`armorData` DOES ride on the Item record, so it is already written today —
+but the AC value itself (14) is in the separate `Armor Class` record, which
+is not. That is exactly why a claimed breastplate equips, displays, and
+grants nothing.
+
+**The collision that blocks guessing the wiring.** On a sheet-made Attack
+record, `source: "Item"` and `sourceID: <itemId>` denote provenance — which
+record created this one. But the compendium's `Armor Class` payload already
+carries `source: "Armor"`, which is plainly semantic: it says where the AC
+comes from, and probably feeds the calculation. Applying the weapon rule
+verbatim would overwrite `"Armor"` with `"Item"` and likely break the AC
+calculation in a way that still looks fine on screen.
+
+So the remaining unknown is narrow but real: **on a sheet-made piece of
+armour, what do the `Armor Class` and `Defense` records look like** — does
+`source` stay `"Armor"`, is provenance held in another field, and do they
+carry `cascades: {itemId: "[\"Equip\"]"}` like attacks do?
+
+**Settles it:** add armour to a character through Roll20's own sheet UI, then
+`PT.sheets.weaponDump("Character", "Breastplate")`. One dump and the rule can
+be written; the shape of it is otherwise a coin flip on a field that decides
+whether AC computes.
+
 ### The two dumps for each
 
 For the shape being worked on, e.g. armour:
