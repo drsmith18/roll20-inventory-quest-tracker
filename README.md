@@ -93,6 +93,7 @@ account? Tell your DM and they can file it:
 | `extension/` | The browser extension — the actual product |
 | `INSTALL.md` | Install guide for players — the link to send your group |
 | `docs/roll20-party-tools-prd.md` | Product requirements (v0.5). Every requirement has an ID |
+| `docs/future-ideas.md` | Ideas and table feedback not yet built — shop sheets, sub-bags, and what would settle each open question |
 | `docs/roll20-technical-findings.md` | What was verified by inspecting Roll20 live, 8 Aug 2026 |
 | `docs/roll20-spike-brief.md` | The six make-or-break tests that were run before any code |
 | `docs/roll20-spike-findings.md` | The answers — all six spikes, with evidence |
