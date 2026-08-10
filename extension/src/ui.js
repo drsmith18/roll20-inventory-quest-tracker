@@ -542,6 +542,7 @@
             // compendium record still landed as a synthesised plain one.
             r.graph = !!sheetRes.graph;
             r.fromCompendium = !!sheetRes.fromCompendium;
+            r.unwrittenTypes = sheetRes.unwrittenTypes || [];
             PT.store.appendLog(env, env.playerName + " claimed " + qty + "× “" + item.name + "” to " + charName);
             return r;
           }
@@ -635,6 +636,14 @@
           // combat. (An item that DID use its compendium record says nothing:
           // that is the normal, working case.)
           ui.toast("“" + item.name + "” went onto the sheet as a plain item — its compendium data couldn't be read. Add it from the sheet's own compendium if you need the full weapon.", 10000);
+        } else if (r.unwrittenTypes && r.unwrittenTypes.length) {
+          // Part of the item's data has no rule yet — armour and magic items
+          // are the likely sources. Naming the record types turns "my armour
+          // doesn't give AC" into something reportable, and tells whoever
+          // picks up the bug report exactly which payload to go and dump.
+          ui.toast("“" + item.name + "” is on the sheet, but " + r.unwrittenTypes.length +
+            " part(s) of it weren't written (" + r.unwrittenTypes.join(", ") +
+            "). Check it works on the sheet — and please report it with the 🐞 button.", 12000);
         }
         ui.refresh();
       });

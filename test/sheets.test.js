@@ -168,10 +168,46 @@ const SHEET_GRAPH = JSON.stringify([
   check("the item is written, the stray damage is not",
     orphan.ok && orphan.records === 1 && orphan.attacks === 0,
     orphan.records + " / " + orphan.attacks);
-  check("and it is reported rather than silently dropped", orphan.unwritten === 0 || true);
+  check("and the loss is reported, not silent",
+    orphan.unwritten === 1 && orphan.unwrittenTypes.join(",") === "Damage",
+    orphan.unwritten + " / " + JSON.stringify(orphan.unwrittenTypes));
   check("no Damage record reached the sheet",
     !Object.values(integrantsOf(orphanChar)).some(r => r.type === "Damage"),
     Object.values(integrantsOf(orphanChar)).map(r => r.type).join(","));
+
+  // The case behind "will armour have the same problem?": anything whose
+  // function lives in records we have no rule for. A container's contents
+  // arrive as extra Item records and used to be dropped WITHOUT being
+  // counted, which made them the one loss nobody was told about.
+  section("data we can't write is counted and named:");
+  const packChar = makeCharacter("Vex", { controlledby: "p1" });
+  const pack = await PT.sheets.addItem(packChar, {
+    name: "Explorer's Pack", qty: 1,
+    datarecords: JSON.stringify([
+      { payload: JSON.stringify({ type: "Item", name: "Explorer's Pack" }) },
+      { payload: JSON.stringify({ type: "Item", name: "Rope" }) },
+      { payload: JSON.stringify({ type: "Item", name: "Torch" }) }
+    ])
+  });
+  check("a container's contents are reported as unwritten",
+    pack.unwritten === 2 && pack.unwrittenTypes.join(",") === "Item,Item",
+    pack.unwritten + " / " + JSON.stringify(pack.unwrittenTypes));
+  const armourChar = makeCharacter("Vex", { controlledby: "p1" });
+  const armour = await PT.sheets.addItem(armourChar, {
+    name: "Chain Mail", qty: 1,
+    datarecords: JSON.stringify([
+      { payload: JSON.stringify({ type: "Item", name: "Chain Mail", armorData: { ac: 16 } }) },
+      { payload: JSON.stringify({ type: "ArmorClass", value: 16 }) }
+    ])
+  });
+  check("an unknown record type is named, so a bug report can point at it",
+    armour.unwritten === 1 && armour.unwrittenTypes.join(",") === "ArmorClass",
+    armour.unwritten + " / " + JSON.stringify(armour.unwrittenTypes));
+  check("the item itself still lands with its own data",
+    integrantsOf(armourChar)[armour.id].armorData.ac === 16,
+    JSON.stringify(integrantsOf(armourChar)[armour.id].armorData));
+  check("a weapon reports nothing unwritten", add.unwrittenTypes.length === 0,
+    JSON.stringify(add.unwrittenTypes));
 
   // ---- a sheet-sourced graph still rebuilds in full ------------------------
   section("a graph WITH ids (from takeItem) still rebuilds in full:");

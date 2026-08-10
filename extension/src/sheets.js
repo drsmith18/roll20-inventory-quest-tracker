@@ -360,13 +360,38 @@
   // Records in a payload that we have no rule for. Attack and Damage are
   // understood (see buildAttacks); anything else is counted and skipped
   // rather than written on a hunch.
-  function unwrittenCount(datarecords) {
+  // Exactly what a claim will NOT write, by the same rules addItem applies.
+  // Kept deliberately in step with buildAttacks: if this says nothing is left
+  // over, nothing is being dropped.
+  //
+  // The cases that matter:
+  //   - a SECOND Item record. A pack's contents would arrive this way, and
+  //     only the first Item is written, so the rest are lost content — not a
+  //     technicality. This used to be excluded from the count, which made it
+  //     the one kind of loss the player was never told about.
+  //   - a Damage with no preceding Attack: nothing to attach it to.
+  //   - any type with no rule at all (armour and magic items are likely to
+  //     bring some; see docs/future-ideas.md).
+  function unwrittenSummary(datarecords) {
     var all = allPayloads(datarecords);
-    if (!all) return 0;
-    return all.filter(function (p) {
-      return p.type !== "Item" && p.type !== "Attack" && p.type !== "Damage";
-    }).length;
+    if (!all) return { count: 0, types: [] };
+    var types = [], seenItem = false, seenAttack = false;
+    all.forEach(function (p) {
+      if (p.type === "Item") {
+        if (!seenItem) { seenItem = true; return; }
+        types.push("Item");
+        return;
+      }
+      if (p.type === "Attack") { seenAttack = true; return; }
+      if (p.type === "Damage") {
+        if (!seenAttack) types.push("Damage");
+        return;
+      }
+      types.push(p.type);
+    });
+    return { count: types.length, types: types };
   }
+  function unwrittenCount(datarecords) { return unwrittenSummary(datarecords).count; }
 
   function shortId() { return "pt" + Math.random().toString(36).slice(2, 8); }
 
@@ -1050,9 +1075,10 @@
           fromCompendium: !!source,
           records: 1 + extraIds.length,
           attacks: extras ? extras.attackIds.length : 0,
-          // Payload records we still have no rule for, so the count is
-          // visible rather than silently dropped.
-          unwritten: item && item.datarecords ? unwrittenCount(item.datarecords) : 0
+          // Payload records we have no rule for, named rather than silently
+          // dropped — the caller warns the player with these.
+          unwritten: item && item.datarecords ? unwrittenCount(item.datarecords) : 0,
+          unwrittenTypes: item && item.datarecords ? unwrittenSummary(item.datarecords).types : []
         };
       });
     });

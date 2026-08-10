@@ -161,6 +161,49 @@ character's **class**, not from the item, so it is not ours to write.)
 
 ---
 
+## Item types other than weapons — armour, containers, magic items
+
+**Asked at the table, Aug 2026:** "will armour have similar issues?"
+
+Almost certainly yes, for anything whose *function* lives in records beside
+the Item. The general rule the weapon work established:
+
+- The **Item record itself** always comes across intact, because it is copied
+  from the compendium verbatim. So an item's name, description, cost, weight,
+  properties and its type data (`weaponData`, and presumably an equivalent
+  for armour) are fine. This is why a claimed longsword looked right in the
+  inventory list from v0.9.2 onward.
+- Anything **mechanical that lives in a sibling record** needs a rule written
+  for it, one type at a time. Attack and Damage have one now. Nothing else
+  does.
+
+Likely to need work, in rough order of how often a table hits them:
+
+1. **Armour and shields** — if AC comes from a sibling record rather than
+   from a field on the Item, armour will equip and show but grant nothing.
+2. **Containers** (Explorer's Pack, Priest's Pack) — their contents arrive as
+   extra `Item` records. Only the first Item is written, so a claimed pack
+   would arrive empty. Note the sheet side of this already works: a contained
+   item is just an Item whose parent is another Item, and `sheets.listItems`
+   already reports which container something sits in.
+3. **Magic items with bonuses** (+1 weapons, cloaks of protection) — likely
+   a modifier record of some kind.
+4. **Consumables** (potions) — may carry an action or healing record.
+
+**v0.9.7 makes this visible instead of silent.** A claim now counts and names
+every payload record it didn't write, and says so in a toast. Before this, a
+container's contents were the one loss nobody was told about — they weren't
+even counted.
+
+**Settles any of them:** put one in a bag and run
+`PT.sheets.payloadDump("Chain Mail")`. That prints the record types and
+contents, in order. Then `PT.sheets.weaponDump("Character", "Chain Mail")`
+against one the sheet made itself shows the structure to build. That pair of
+dumps is what turned the weapon problem from guesswork into a morning's work,
+and it will do the same for each of these.
+
+---
+
 ## Smaller things raised at the table
 
 - **Sub-bags.** Already in the PRD, still unbuilt. Containers on a sheet
