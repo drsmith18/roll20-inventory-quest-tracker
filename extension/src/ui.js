@@ -8,6 +8,11 @@
   var env = null, snapshot = null, panel = null, launcher = null;
   var activeTab = "inventory";
   var pollTimer = null;
+  // Set while there is no usable storage (noStorage / notReady): paints that
+  // state's own message and controls into the inventory tab. Held here rather
+  // than appended once at mount because EVERY render clears the body — see
+  // renderInventory. Null once storage is adopted.
+  var statusRender = null;
   // INV-25 search box. Survives ui.refresh() re-renders (see renderBody's
   // focus capture/restore) because it lives here, outside the DOM, and
   // renderInventory() rebuilds the input FROM this value on every render.
@@ -81,6 +86,7 @@
     ".pt-row{display:flex;gap:8px;margin:8px 0}",
     ".pt-btn{background:var(--pt-bg3);color:var(--pt-text);border:1px solid var(--pt-edge2);border-radius:4px;padding:6px 12px;cursor:pointer;font-size:12.5px}",
     ".pt-btn:hover{background:#383b43}",
+    ".pt-btn:disabled,.pt-btn:disabled:hover{background:var(--pt-bg3);opacity:.55;cursor:default}",
     ".pt-btn.pt-danger{background:#3a2426;border-color:#7c3c3c;color:#e8b4b4}",
     ".pt-btn.pt-danger:hover{background:#4a2b2e}",
     ".pt-drop-over{outline:3px dashed var(--pt-accent);outline-offset:-3px}",
@@ -868,6 +874,19 @@
   }
 
   function renderInventory(body) {
+    // No storage adopted yet, so there is nothing to list. Paint the blocked
+    // state's message instead, on every render.
+    //
+    // This guard is load-bearing: mount() used to append that message once
+    // and return, but opening the panel calls renderBody(), which clears the
+    // body and then threw here on snapshot.readOnly — so a player in a game
+    // the DM had not set up yet saw the explanation for a moment at most,
+    // then an empty panel with no hint of what was wrong.
+    if (!snapshot) {
+      if (statusRender) statusRender(body);
+      else body.appendChild(PT.el("div", { class: "pt-empty", text: "Party Tools is still starting up…" }));
+      return;
+    }
     if (snapshot.readOnly) body.appendChild(PT.el("div", { class: "pt-note", text: "⚠ This game's data was written by a NEWER version of Party Tools. Everything is read-only until you update the extension." }));
 
     // INV-25: search box. Rebuilt from `searchTerm` on every render, so the
@@ -1107,6 +1126,87 @@
     });
   }
 
+  // "This game isn't set up yet." A player who loads before the DM has opened
+  // the panel used to be stuck here until they reloaded the page: init runs
+  // once at boot (main.js) and, unlike `notReady`, this state had no retry.
+  // The DM typically initialises minutes later, mid-session, so watch for it
+  // and adopt the storage the moment it appears.
+  //
+  // The tick is slow and starts with a free check — store.storageExists() is a
+  // filter over the already-downloaded journal, no body reads — so the common
+  // case (still waiting) costs nothing to repeat all session. Only once PT-
+  // handouts actually exist do we pay for a full init(), which brings its own
+  // journal-settling and body-read retries.
+  //
+  // Automatic polling is player-only. For the DM this state means init FAILED
+  // (main.js), where a silent retry loop could re-attempt creation every tick
+  // and spray duplicate storage sets if the writes are landing but failing
+  // verification. The DM gets the button instead: one deliberate retry.
+  var NO_STORAGE_POLL_MS = 15000;
+  function mountNoStorage() {
+    var timer = null, checking = false;
+    var msg = PT.el("div", {
+      class: "pt-empty",
+      text: env.isGM
+        ? "Party Tools could not set this game up. Check the browser console, then try again."
+        : "This game doesn't have Party Tools data yet. The DM opens the panel once to set it up — players never initialise a game. Watching for it…"
+    });
+    var btn = PT.el("button", {
+      class: "pt-btn", text: "Check again",
+      title: "Look for Party Tools storage in this game right now",
+      onclick: function () { check(true); }
+    });
+    var btnRow = PT.el("div", { style: "margin-top:8px" }, [btn]);
+    // The same two nodes are re-appended on every render, so the button keeps
+    // its in-flight "Checking…" state across a rebuild.
+    statusRender = function (body) { body.appendChild(msg); body.appendChild(btnRow); };
+    renderBody();
+
+    function adopt(res) {
+      if (timer) { clearInterval(timer); timer = null; }
+      statusRender = null;
+      ui.state = res.state;
+      ui.refresh().then(renderBody);
+      // res.firstRun only ever comes back on the DM's own retry, where this
+      // click is what created the storage.
+      PT.ui.toast(res.firstRun
+        ? "Party Tools is set up — a “Party Loot” bag has been created. Drag compendium items onto it!"
+        : env.isGM ? "Party Tools is ready."
+        : "Party Tools is ready — the DM has set this game up.");
+    }
+
+    function reset() {
+      checking = false;
+      btn.disabled = false; btn.textContent = "Check again";
+    }
+
+    function check(manual) {
+      if (checking) return;
+      // Nothing has been created yet: the whole point of the cheap probe.
+      if (!manual && !PT.store.storageExists()) return;
+      checking = true;
+      if (manual) { btn.disabled = true; btn.textContent = "Checking…"; }
+      PT.store.init(env).then(function (res) {
+        if (res.state === "ready" || res.state === "readOnly") { adopt(res); return; }
+        reset();
+        if (!manual) return;
+        // notReady means handouts exist but no index was readable in time —
+        // worth distinguishing from "the DM hasn't started yet", because it
+        // usually clears on its own.
+        PT.ui.toast(res.state === "notReady"
+          ? "Party Tools storage is there but hasn't finished loading. Try again in a moment."
+          : res.state === "initFailed"
+            ? "Party Tools still could not create its storage: " + res.err
+            : "Still no Party Tools data in this game.");
+      }, function (e) {
+        reset();
+        if (manual) PT.ui.toast("Party Tools could not check this game's storage: " + (e && e.message ? e.message : e));
+      });
+    }
+
+    if (!env.isGM) timer = setInterval(check, NO_STORAGE_POLL_MS);
+  }
+
   ui.mount = function (envInfo, state) {
     env = envInfo;
     document.head.appendChild(PT.el("style", { text: CSS }));
@@ -1170,28 +1270,23 @@
     try { new ResizeObserver(saveGeomSoon).observe(panel); } catch (e) {}
 
     ui.state = state;
-    if (state === "noStorage") {
-      panel.querySelector(".pt-body").appendChild(PT.el("div", {
-        class: "pt-empty",
-        text: "This game doesn't have Party Tools data yet. The DM opens the panel once to set it up — players never initialise a game."
-      }));
-      return;
-    }
+    if (state === "noStorage") { mountNoStorage(); return; }
     if (state === "notReady") {
-      var body = panel.querySelector(".pt-body");
-      body.appendChild(PT.el("div", { class: "pt-empty", text: "Party Tools storage is still loading (or a previous version left it in a mixed state). Retrying…" }));
+      var note = PT.el("div", { class: "pt-empty", text: "Party Tools storage is still loading (or a previous version left it in a mixed state). Retrying…" });
+      statusRender = function (body) { body.appendChild(note); };
+      renderBody();
       // Retry init a few times; Roll20 may just be slow delivering bodies.
       var tries = 0;
       var retry = setInterval(function () {
         tries++;
         PT.store.init(env).then(function (res) {
           if (res.state === "ready" || res.state === "readOnly") {
-            clearInterval(retry); ui.state = res.state;
+            clearInterval(retry); statusRender = null; ui.state = res.state;
             ui.refresh().then(renderBody);
           } else if (tries >= 6) {
             clearInterval(retry);
-            body.textContent = "";
-            body.appendChild(PT.el("div", { class: "pt-empty", text: "Storage didn't finish loading. Try reloading the Roll20 page. If it persists, the DM can reset from the ♥ tab." }));
+            note.textContent = "Storage didn't finish loading. Try reloading the Roll20 page. If it persists, the DM can reset from the ♥ tab.";
+            renderBody();
           }
         });
       }, 3000);

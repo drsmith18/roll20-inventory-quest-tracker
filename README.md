@@ -54,7 +54,8 @@ Short version for the impatient: download the repo as a ZIP, unzip it, then
 in Chrome go to `chrome://extensions`, turn on **Developer mode**, click
 **Load unpacked**, and pick the `extension` folder. Reload your Roll20 game
 and click the treasure-chest tab on the right edge. The DM must open the
-panel once in each game before players can use it.
+panel once in each game before players can use it — players who got there
+first don't need to reload, their panel picks the game up on its own.
 
 ## Reporting bugs (please do!)
 

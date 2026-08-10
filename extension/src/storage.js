@@ -115,6 +115,14 @@
     });
   }
 
+  // Cheap synchronous "has the DM set this game up yet?" check: a filter over
+  // the already-downloaded journal collection, with no body reads. The player
+  // client polls this while it waits for the DM (see ui.js), so it has to stay
+  // free enough to call every few seconds all session.
+  PT.store.storageExists = function () {
+    return ptHandoutsByName().length > 0;
+  };
+
   function scan() {
     // Sort by id so selection is DETERMINISTIC across clients: if duplicate
     // storage sets ever exist, the DM and every player pick the SAME one

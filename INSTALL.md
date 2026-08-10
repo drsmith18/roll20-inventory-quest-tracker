@@ -96,8 +96,10 @@ Not supported. Safari needs a completely different packaging process.
 3. The Party Tools panel opens.
 
 **Your DM must open it first, once, in each game.** That's what creates the
-storage. If you open it before they have, you'll see a message saying so —
-just wait for them and reopen it.
+storage. If you open it before they have, the panel says so and then keeps
+watching in the background — when your DM sets the game up, your panel picks
+it up on its own within about fifteen seconds. No reload needed. There's a
+**Check again** button if you'd rather not wait.
 
 ### Checking it's working
 
@@ -136,8 +138,10 @@ details or settings page.
 You're probably in Roll20's "view as player" mode. Leave that mode and
 reload the page.
 
-**The panel is empty, or says the game has no data yet.**
-The DM needs to open the panel once first. If they already have, reload.
+**The panel says the game has no data yet.**
+The DM needs to open the panel once first. Leave your panel open — it checks
+every fifteen seconds and will fill in by itself once they have. Click
+**Check again** to look immediately.
 
 **Everything looks frozen or out of date.**
 Reload the Roll20 page. The panel refreshes every few seconds, but a page
