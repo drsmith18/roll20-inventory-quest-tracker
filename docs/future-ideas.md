@@ -83,10 +83,10 @@ synthesising one. That carries `weaponData` (`{category, training, type}`),
 makes the sheet treat it as a weapon. **Confirmed working at the table** —
 a claimed longsword now shows as a weapon rather than a possession.
 
-**Still open, and now the main outstanding job.** Confirmed at the table: the
-sheet does NOT derive an attack from `weaponData`. A claimed longsword shows
-as a weapon but offers no attack roll even when equipped, so the payload's
-other four records (Attack, two Damage, Mastery) have to be written.
+**Confirmed at the table** that the sheet does NOT derive an attack from
+`weaponData`: a claimed longsword showed as a weapon but offered no attack
+roll even when equipped. So the payload's Attack and Damage records had to be
+written too — done in v0.9.6, pending confirmation in play.
 
 ### The wiring, as read off a real sheet
 
@@ -133,18 +133,28 @@ Two things this dump already fixed, in v0.9.5:
 - `subtreeIds` walking a real sheet showed `(cycle)` markers in ancestry
   output, i.e. the guards there earn their keep on real data.
 
-### What's still needed to build it
+### The compendium side, captured
 
-The compendium payload's own Attack and Damage records, in payload order —
-`PT.sheets.payloadDump("Longsword")` on an item sitting in a bag. Five
-records were reported for a longsword, which matches Item + 2 Attacks +
-2 Damages exactly, but their field names and order have not been seen.
+`PT.sheets.payloadDump("Longsword")` on a bagged longsword returned five
+records in the order **[Item, Attack, Damage, Attack, Damage]** — each Damage
+immediately following the Attack it belongs to, which is the only pairing
+signal available since none of them carry ids or links:
 
-Order is the only thing that could pair a Damage with its Attack, since the
-payload carries no links — so if the order turns out to be ambiguous
-(e.g. Item, Attack, Attack, Damage, Damage with names that don't correspond),
-pairing has to come from the names instead, and that needs checking rather
-than assuming.
+```
+{"type":"Attack","name":"Longsword (One-Handed)",
+ "attack":{"type":"Melee","abilityBonus":"Strength"}}
+{"type":"Damage","ability":"auto","damageType":"Slashing","diceSize":"d8"}
+{"type":"Attack","name":"Longsword (Two-Handed)", ...}
+{"type":"Damage","ability":"auto","damageType":"Slashing","diceSize":"d10"}
+```
+
+The payload's records are thinner than the sheet's: no `_diceCount` (every
+observed sheet record had 1), no `actionType` (the sheet's say `"Action"`),
+no name on Damage records at all (the sheet names them after their attack).
+Those are filled in on write.
+
+**Built in v0.9.6.** Claiming a compendium weapon now writes the Item, its
+Attacks and their Damage, wired as above.
 
 (The `Weapon Mastery Known` record seen next to the longsword comes from the
 character's **class**, not from the item, so it is not ours to write.)

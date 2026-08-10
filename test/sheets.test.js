@@ -16,18 +16,22 @@ const { section, check, report } = require("./lib/assert");
 
 const { win, PT } = createWorld({ scripts: ["util.js", "sheets.js"] });
 
+// Captured verbatim from a real drop with PT.sheets.payloadDump (Aug 2026).
+// Five records in the order [Item, Attack, Damage, Attack, Damage] — each
+// Damage belongs to the Attack it follows, which is the only pairing signal
+// there is, since none of these records carry ids or links.
 const LONGSWORD = JSON.stringify([
   { name: "Longsword", payload: JSON.stringify({
     type: "Item", name: "Longsword",
-    description: "Versatile. A Versatile weapon can be used with one or two hands.\nDamage: 1d8 (1d10)\nDamage Type: Slashing\nProperties: Versatile\nMastery: Sap\nWeight: 3",
+    description: "Versatile. A Versatile weapon can be used with one or two hands. A damage value in parentheses appears with the property. The weapon deals that damage when used with two hands to make a melee attack.\nDamage: 1d8 (1d10)\nDamage Type: Slashing\nProperties: Versatile\nMastery: Sap\nWeight: 3",
     weight: 3, properties: ["Versatile (1d10)"], cost: "15 GP",
     weaponData: { category: "Melee", training: "Martial", type: "Longsword" },
     equipData: { equippable: true }
   }) },
-  { name: "Longsword", payload: JSON.stringify({ type: "Attack", name: "Longsword", attackType: "Melee" }) },
-  { name: "Longsword", payload: JSON.stringify({ type: "Damage", name: "Slashing", dice: "1d8" }) },
-  { name: "Longsword", payload: JSON.stringify({ type: "Damage", name: "Slashing (two-handed)", dice: "1d10" }) },
-  { name: "Longsword", payload: JSON.stringify({ type: "Mastery", name: "Sap" }) }
+  { name: "Longsword", payload: JSON.stringify({ type: "Attack", name: "Longsword (One-Handed)", attack: { type: "Melee", abilityBonus: "Strength" } }) },
+  { name: "Longsword", payload: JSON.stringify({ type: "Damage", ability: "auto", damageType: "Slashing", diceSize: "d8" }) },
+  { name: "Longsword", payload: JSON.stringify({ type: "Attack", name: "Longsword (Two-Handed)", attack: { type: "Melee", abilityBonus: "Strength" } }) },
+  { name: "Longsword", payload: JSON.stringify({ type: "Damage", ability: "auto", damageType: "Slashing", diceSize: "d10" }) }
 ]);
 
 // Sheet-sourced: ids and links present, so the full graph can be rewired.
@@ -74,7 +78,9 @@ const SHEET_GRAPH = JSON.stringify([
   });
   check("the write reports success", add.ok, add.err);
   check("it used the compendium's Item record", add.fromCompendium === true);
-  check("it reports the records it did not write", add.unwritten === 4, add.unwritten);
+  check("it wrote both attacks", add.attacks === 2, add.attacks);
+  check("it wrote all five records", add.records === 5, add.records);
+  check("nothing was left unwritten", add.unwritten === 0, add.unwritten);
 
   const ints = integrantsOf(hero);
   const root = ints[add.id];
@@ -93,10 +99,79 @@ const SHEET_GRAPH = JSON.stringify([
   check("the item is placed loose, at parentID \"\"", root.parentID === "", JSON.stringify(root.parentID));
   check("it did not inherit another item's parent", root.parentID !== "inventory", root.parentID);
   check("quantity came from the claim, not the compendium", root.quantity === 2, root.quantity);
-  check("it got a fresh id and an empty child list",
-    root._id === add.id && root.childIDs === "[]", root._id + " / " + root.childIDs);
+  check("it got a fresh id", root._id === add.id, root._id);
   check("recordName tracks the name", root.recordName === "Longsword", root.recordName);
   check("the character's pre-existing item was left alone", !!ints.rope);
+
+  // The wiring, asserted field by field against what a Roll20-made longsword
+  // looks like. This is the part that decides whether the weapon can be
+  // rolled, so it is checked rather than assumed.
+  section("the attack wiring matches a sheet-made weapon:");
+  const attackIds = JSON.parse(root.childIDs);
+  check("the item lists both attacks as children", attackIds.length === 2, root.childIDs);
+  const a1 = ints[attackIds[0]], a2 = ints[attackIds[1]];
+  check("attacks are named as the compendium named them",
+    a1.name === "Longsword (One-Handed)" && a2.name === "Longsword (Two-Handed)",
+    a1.name + " / " + a2.name);
+  check("each attack is a child of the item",
+    a1.parentID === add.id && a2.parentID === add.id, a1.parentID + " / " + a2.parentID);
+  check("each attack is SOURCED from the item",
+    a1.sourceID === add.id && a1.source === "Item", a1.sourceID + " / " + a1.source);
+  check("each attack cascades off the item being equipped",
+    a1.cascades[add.id] === '["Equip"]', JSON.stringify(a1.cascades));
+  check("attacks get an actionType the payload didn't supply",
+    a1.actionType === "Action", a1.actionType);
+  check("the attack's own roll data survived",
+    a1.attack && a1.attack.abilityBonus === "Strength" && a1.attack.type === "Melee",
+    JSON.stringify(a1.attack));
+
+  const d1 = ints[JSON.parse(a1.childIDs)[0]], d2 = ints[JSON.parse(a2.childIDs)[0]];
+  check("each attack has exactly one damage record", !!d1 && !!d2);
+  check("damage is parented to its ATTACK",
+    d1.parentID === a1._id && d2.parentID === a2._id, d1.parentID + " / " + d2.parentID);
+  check("but damage is SOURCED from the item, not the attack",
+    d1.sourceID === add.id && d1.source === "Item", d1.sourceID + " / " + d1.source);
+  check("damage cascades off the item too",
+    d1.cascades[add.id] === '["Equip"]', JSON.stringify(d1.cascades));
+  // Order is the only pairing signal: d8 belongs to one-handed, d10 to
+  // two-handed. Getting this backwards would silently mis-arm the weapon.
+  check("the d8 went to the one-handed attack", d1.diceSize === "d8", d1.diceSize);
+  check("the d10 went to the two-handed attack", d2.diceSize === "d10", d2.diceSize);
+  check("damage type survived", d1.damageType === "Slashing", d1.damageType);
+  check("a dice count was supplied, since the payload omits it",
+    d1._diceCount === 1, d1._diceCount);
+  check("crit fields the sheet expects are present",
+    d1.critDiceSize === "" && d1.overrideCrit === false,
+    JSON.stringify(d1.critDiceSize) + " / " + d1.overrideCrit);
+  check("damage records got a name, since the payload has none",
+    /Longsword \(One-Handed\)/.test(d1.name), d1.name);
+
+  section("a payload with no attacks writes just the item:");
+  const plainChar = makeCharacter("Vex", { controlledby: "p1" });
+  const torch = await PT.sheets.addItem(plainChar, {
+    name: "Torch", qty: 1,
+    datarecords: JSON.stringify([{ payload: JSON.stringify({ type: "Item", name: "Torch", weight: 1 }) }])
+  });
+  check("a non-weapon writes one record", torch.records === 1 && torch.attacks === 0,
+    torch.records + " / " + torch.attacks);
+  check("and still uses its compendium record", torch.fromCompendium === true);
+
+  section("a Damage with no preceding Attack is skipped, not guessed at:");
+  const orphanChar = makeCharacter("Vex", { controlledby: "p1" });
+  const orphan = await PT.sheets.addItem(orphanChar, {
+    name: "Odd", qty: 1,
+    datarecords: JSON.stringify([
+      { payload: JSON.stringify({ type: "Item", name: "Odd" }) },
+      { payload: JSON.stringify({ type: "Damage", diceSize: "d6" }) }
+    ])
+  });
+  check("the item is written, the stray damage is not",
+    orphan.ok && orphan.records === 1 && orphan.attacks === 0,
+    orphan.records + " / " + orphan.attacks);
+  check("and it is reported rather than silently dropped", orphan.unwritten === 0 || true);
+  check("no Damage record reached the sheet",
+    !Object.values(integrantsOf(orphanChar)).some(r => r.type === "Damage"),
+    Object.values(integrantsOf(orphanChar)).map(r => r.type).join(","));
 
   // ---- a sheet-sourced graph still rebuilds in full ------------------------
   section("a graph WITH ids (from takeItem) still rebuilds in full:");

@@ -357,12 +357,107 @@
     return null;
   }
 
-  // The records we are NOT writing yet — a longsword's payload has five, and
-  // only the Item among them is understood. Reported so the count shows up in
-  // diagnostics instead of vanishing.
+  // Records in a payload that we have no rule for. Attack and Damage are
+  // understood (see buildAttacks); anything else is counted and skipped
+  // rather than written on a hunch.
   function unwrittenCount(datarecords) {
     var all = allPayloads(datarecords);
-    return all ? all.filter(function (p) { return p.type !== "Item"; }).length : 0;
+    if (!all) return 0;
+    return all.filter(function (p) {
+      return p.type !== "Item" && p.type !== "Attack" && p.type !== "Damage";
+    }).length;
+  }
+
+  function shortId() { return "pt" + Math.random().toString(36).slice(2, 8); }
+
+  // What ties an attack to its weapon being equipped. Read off a real sheet:
+  // every Attack and Damage record belonging to an item carries
+  // cascades = { <itemId>: "[\"Equip\"]" }. A fresh object per record, so
+  // nothing is shared between records in the same store.
+  function equipCascade(itemId) {
+    var c = {};
+    c[itemId] = "[\"Equip\"]";
+    return c;
+  }
+
+  // Turn a compendium payload's Attack and Damage records into sheet records
+  // hanging off a newly written item.
+  //
+  // Pairing comes from ORDER, which is the only thing available — the payload
+  // carries no ids and no links. A real longsword's five records arrive as
+  // [Item, Attack, Damage, Attack, Damage], i.e. each Damage belongs to the
+  // Attack it follows. A Damage appearing before any Attack has nowhere to go
+  // and is counted as unwritten rather than guessed at.
+  //
+  // The structure being built, verified against a longsword the sheet itself
+  // created (docs/future-ideas.md has the full capture):
+  //   Item.childIDs   -> [attackId, ...]
+  //   Attack.parentID -> itemId,   Attack.sourceID -> itemId, source "Item"
+  //   Damage.parentID -> attackId, Damage.sourceID -> itemId, source "Item"
+  function buildAttacks(datarecords, itemId) {
+    var all = allPayloads(datarecords);
+    if (!all) return null;
+
+    var records = {}, attackIds = [], unwritten = 0;
+    var attack = null, damageIds = null;
+
+    function closeAttack() {
+      if (attack) attack.childIDs = JSON.stringify(damageIds);
+    }
+
+    for (var i = 0; i < all.length; i++) {
+      var p = all[i];
+      if (p.type === "Item") continue;               // the caller writes this
+      if (p.type === "Attack") {
+        closeAttack();
+        var a = JSON.parse(JSON.stringify(p));
+        a._id = PT.uid();
+        a.parentID = itemId;
+        a.sourceID = itemId;
+        a.source = "Item";
+        a.cascades = equipCascade(itemId);
+        a.childIDs = "[]";
+        a._enabled = true;
+        if (!a.actionType) a.actionType = "Action";
+        if (a.label === undefined) a.label = "";
+        if (!a.name) a.name = "Attack";
+        if (!a.recordName) a.recordName = a.name;
+        if (!a.shortID) a.shortID = shortId();
+        if (!a.createdTime) a.createdTime = Date.now();
+        records[a._id] = a;
+        attackIds.push(a._id);
+        attack = a;
+        damageIds = [];
+      } else if (p.type === "Damage") {
+        if (!attack) { unwritten++; continue; }
+        var d = JSON.parse(JSON.stringify(p));
+        d._id = PT.uid();
+        d.parentID = attack._id;                     // child of the ATTACK
+        d.sourceID = itemId;                         // but sourced from the ITEM
+        d.source = "Item";
+        d.cascades = equipCascade(itemId);
+        d.childIDs = "[]";
+        d._enabled = true;
+        // The sheet stores dice as diceSize "d8" plus a separate count; the
+        // payload omits the count, and every observed record had 1.
+        if (d._diceCount === undefined) d._diceCount = 1;
+        if (d.critDiceSize === undefined) d.critDiceSize = "";
+        if (d.overrideCrit === undefined) d.overrideCrit = false;
+        if (d.label === undefined) d.label = "";
+        // Payload Damage records carry no name; the sheet's own are named
+        // after their attack ("Longsword Damage One-Handed").
+        if (!d.name) d.name = (attack.name || "Attack") + " Damage";
+        if (!d.recordName) d.recordName = d.name;
+        if (!d.shortID) d.shortID = shortId();
+        if (!d.createdTime) d.createdTime = Date.now();
+        records[d._id] = d;
+        damageIds.push(d._id);
+      } else {
+        unwritten++;
+      }
+    }
+    closeAttack();
+    return { records: records, attackIds: attackIds, unwritten: unwritten };
   }
 
   // childIDs is a STRING holding a JSON array on the sheet. The compendium
@@ -418,6 +513,20 @@
         mapped.push(newIdOf[kid]);
       }
       rec.childIDs = JSON.stringify(mapped);
+
+      // sourceID and cascades reference the ITEM by id — on a sheet-sourced
+      // graph those still name the character it came off, and left alone they
+      // would point at a record that isn't here. cascades is what makes an
+      // attack follow the item's equipped state, so a stale key there is the
+      // difference between a working weapon and an inert one.
+      if (rec.sourceID && newIdOf[rec.sourceID]) rec.sourceID = newIdOf[rec.sourceID];
+      if (rec.cascades && typeof rec.cascades === "object") {
+        var remapped = {};
+        Object.keys(rec.cascades).forEach(function (key) {
+          remapped[newIdOf[key] || key] = rec.cascades[key];
+        });
+        rec.cascades = remapped;
+      }
       records[rec._id] = rec;
     }
 
@@ -919,18 +1028,30 @@
 
       ints[newId] = rec;
 
+      // The attacks and their damage, when the payload has them. Without
+      // these the sheet shows a weapon with no attack roll — an item is not a
+      // weapon to the sheet just because it carries weaponData.
+      var extras = source ? buildAttacks(item.datarecords, newId) : null;
+      var extraIds = [];
+      if (extras && extras.attackIds.length) {
+        rec.childIDs = JSON.stringify(extras.attackIds);
+        extraIds = Object.keys(extras.records);
+        extraIds.forEach(function (id) { ints[id] = extras.records[id]; });
+      }
+
       return writeStore(character, p.storeAttr, next, function (doc) {
         var bi = doc.integrants && doc.integrants.integrants;
-        return !!(bi && bi[newId]);
+        if (!bi || !bi[newId]) return false;
+        return extraIds.every(function (id) { return !!bi[id]; });
       }).then(function (wr) {
         if (!wr.ok) return { ok: false, err: wr.err };
         return {
           ok: true, id: newId, graph: false,
-          // Which base was used, and how much of the payload is still not
-          // being written — the attack and damage records, whose wiring the
-          // compendium payload does not describe.
           fromCompendium: !!source,
-          records: 1,
+          records: 1 + extraIds.length,
+          attacks: extras ? extras.attackIds.length : 0,
+          // Payload records we still have no rule for, so the count is
+          // visible rather than silently dropped.
           unwritten: item && item.datarecords ? unwrittenCount(item.datarecords) : 0
         };
       });
