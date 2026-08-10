@@ -356,12 +356,28 @@ every payload record it didn't write, and says so in a toast. Before this, a
 container's contents were the one loss nobody was told about — they weren't
 even counted.
 
-**Settles any of them:** put one in a bag and run
-`PT.sheets.payloadDump("Chain Mail")`. That prints the record types and
-contents, in order. Then `PT.sheets.weaponDump("Character", "Chain Mail")`
-against one the sheet made itself shows the structure to build. That pair of
-dumps is what turned the weapon problem from guesswork into a morning's work,
-and it will do the same for each of these.
+**Start with `PT.sheets.survey()`** (v0.9.13). It lists every item in every
+bag with the record types its payload carries and whether claiming would drop
+anything — so it answers "does armour work?" for armour and everything else
+at once, instead of a dump per item type.
+
+Read it like this:
+
+- `types: ["Item"]` and nothing unwritten -> that item already claims
+  complete. **If armour reads this way, armour works today**, because the
+  Item record is copied verbatim and would carry whatever the armour
+  equivalent of `weaponData` is.
+- `unwritten: [...]` -> record types with no rule yet. That list IS the work.
+
+**Then, only for a shape that shows up as unwritten:**
+`PT.sheets.payloadDump("Chain Mail")` for the content we are given, and
+`PT.sheets.weaponDump("Character", "Chain Mail")` against one the sheet built
+itself for the structure to build. That pair turned the weapon problem from
+guesswork into a morning's work, and will do the same for each of these.
+
+**Passive signal, no command needed:** since v0.9.7 a claim toasts the record
+types it could not write. Claim a piece of armour and get no such warning,
+and nothing was dropped.
 
 ---
 

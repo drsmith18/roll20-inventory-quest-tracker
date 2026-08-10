@@ -502,6 +502,44 @@ const SHEET_GRAPH = JSON.stringify([
   delete win.$;
 
   win.Campaign.characters.models = [hero2];
+  // survey(): the "what in my bags would arrive incomplete?" question, for
+  // every item at once rather than one payloadDump per item type.
+  section("the bag survey:");
+  check("it says so when storage isn't ready",
+    !!(await PT.sheets.survey()).error);
+  PT.store = {
+    snapshot: () => Promise.resolve({ bags: [{ doc: { name: "Party Loot", items: [
+      { name: "Longsword", datarecords: LONGSWORD },
+      { name: "Rope", datarecords: JSON.stringify([{ payload: JSON.stringify({ type: "Item", name: "Rope" }) }]) },
+      // The armour shape we don't know yet: an Item plus something with no
+      // rule. Whatever that turns out to be, this is how it should read.
+      { name: "Chain Mail", datarecords: JSON.stringify([
+        { payload: JSON.stringify({ type: "Item", name: "Chain Mail", armorData: { ac: 16 } }) },
+        { payload: JSON.stringify({ type: "ArmorClass", value: 16 }) }
+      ]) },
+      { name: "A Strangely Warm Rock" }
+    ] } }] })
+  };
+  const survey = await PT.sheets.survey();
+  check("a weapon reports its full payload shape",
+    survey.items.find(i => i.name === "Longsword").types.join("+") === "Item+Attack+Damage+Attack+Damage",
+    JSON.stringify(survey.items.find(i => i.name === "Longsword").types));
+  check("a weapon has nothing unwritten",
+    survey.items.find(i => i.name === "Longsword").unwritten.length === 0);
+  check("a plain item reports a single Item record",
+    survey.items.find(i => i.name === "Rope").types.join("+") === "Item");
+  check("an item with an unknown record type is flagged",
+    survey.items.find(i => i.name === "Chain Mail").unwritten.join(",") === "ArmorClass",
+    JSON.stringify(survey.items.find(i => i.name === "Chain Mail").unwritten));
+  check("a manual item is described, not treated as broken",
+    /no payload/.test(survey.items.find(i => i.name === "A Strangely Warm Rock").types));
+  check("it groups by payload shape, so a big inventory collapses to cases",
+    survey.byShape["Item"] === 1 && survey.byShape["Item+ArmorClass"] === 1,
+    JSON.stringify(survey.byShape));
+  check("the verdict names what needs work",
+    /1 item\(s\)/.test(survey.verdict) && survey.needsWork.length === 1, survey.verdict);
+  delete PT.store;
+
   const missing = await PT.sheets.report("Nobody At All");
   check("report also lists known names on a miss",
     Array.isArray(missing.knownNames), JSON.stringify(missing.knownNames));

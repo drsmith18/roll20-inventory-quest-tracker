@@ -1024,6 +1024,56 @@
     });
   }
 
+  // Console diagnostic: PT.sheets.survey()
+  //
+  // Every item in every bag you can see, with the record types its compendium
+  // payload carries and whether claiming it would drop anything. One command
+  // instead of a payloadDump per item type, and it answers the standing
+  // question — "does armour work?" — for armour and everything else at once.
+  //
+  // What to read:
+  //   types: ["Item"]                     -> nothing to lose; claiming is complete
+  //   types: ["Item","Attack","Damage"]   -> a weapon; handled since v0.9.6
+  //   unwritten: [...]                    -> types we have no rule for YET.
+  //                                          This is the list of work.
+  //
+  // Read-only, and compact by design: types and counts, no record contents.
+  PT.sheets.survey = function () {
+    if (!PT.store || !PT.store.snapshot) {
+      return Promise.resolve({ error: "storage isn't ready on this client yet" });
+    }
+    return PT.store.snapshot(PT.envInfo).then(function (snap) {
+      var out = { version: PT.VERSION, items: [], byShape: {}, needsWork: [] };
+      ((snap && snap.bags) || []).forEach(function (b) {
+        (b.doc.items || []).forEach(function (it) {
+          var all = it.datarecords ? allPayloads(it.datarecords) : null;
+          var types = all ? all.map(function (p) { return p.type; }) : [];
+          var left = it.datarecords ? unwrittenSummary(it.datarecords) : { count: 0, types: [] };
+          var row = {
+            bag: b.doc.name,
+            name: it.name,
+            types: types.length ? types : (it.datarecords ? "unreadable payload" : "no payload (manual or name-only)"),
+            unwritten: left.types
+          };
+          out.items.push(row);
+          // Group by payload shape: items sharing a shape share a fate, so
+          // this collapses a big inventory into the handful of cases that
+          // actually differ.
+          var shape = types.length ? types.join("+") : "none";
+          out.byShape[shape] = (out.byShape[shape] || 0) + 1;
+          if (left.count) out.needsWork.push(it.name + " -> " + left.types.join(","));
+        });
+      });
+      out.verdict = out.needsWork.length
+        ? out.needsWork.length + " item(s) carry record types with no rule yet — these are the ones that would arrive incomplete"
+        : "every item in your bags claims complete: nothing in their payloads goes unwritten";
+      return out;
+    }).then(function (r) {
+      console.log("[PartyTools] survey:\n" + JSON.stringify(r, null, 2));
+      return r;
+    });
+  };
+
   // Console diagnostic: PT.sheets.payloadDump("Longsword")
   //
   // The other side of weaponDump: what the COMPENDIUM gives us for an item
