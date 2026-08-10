@@ -264,33 +264,49 @@ The remaining question is whether `C` — and its `relay` — can be reached fro
 outside. `PT.sheets.probeDropRelay()` searches for an object with a
 `dropOver` method, bounded so it can't walk the whole page.
 
-**First run (v0.9.11): nothing.** `window.wantsToReceiveDrop` is confirmed a
-real global, and the drop target is in the DOM with a sheet open, but the
-element carried no framework internals. That first probe had a blind spot —
-it only looked at own properties starting with `_` or `$`, which excludes
-jQuery's expando (`jQuery19104…`), the likeliest hiding place for a Backbone
-view. v0.9.12 widens it to every own property, jQuery `.data()` on the target
-AND its ancestors, and the droppable instance itself.
+**ROUTE 1 IS CLOSED (v0.9.12, conclusive).** The widened probe found
+everything there was to find on the drop target, and the component is not
+among it:
 
-**If that also comes back empty, this route is closed** and should be
-recorded as such: the component keeps its relay in a closure with no
-reference reachable from the DOM, and nothing short of intercepting the
-Beacon `postMessage` traffic would get at it. That is undocumented API on top
-of undocumented API, on a page where a wrong guess writes to a real
-character — not worth it against a record-writing path that already works.
+```
+elementInternals: ["jQuery191004276323288658268"]   <- only jQuery's expando
+jqueryData:       ["droppable", "uiDroppable"]      <- only the droppable
+rootsFound:       4 entries, all the droppable instance
+objectsVisited:   16                                <- the walk dead-ends
+```
 
-**Note the constraint either way:** the target sits inside the sheet dialog
-(`.charsheet-compendium-drop-target < .iframeHolder < .handout-dialog`), so
-the character sheet has to be OPEN for this to work. The hand-written record
-path does not have that limitation, so the likely end state is drop-route
-when the sheet is open, record-writing otherwise — not a straight
-replacement.
+`C` is held in a closure. Nothing on the element, its ancestors, its jQuery
+data or the droppable instance leads to it, so `C.relay.dropOver` cannot be
+called from a content script.
 
-If that works, claiming becomes: put the item's compendium reference in front
-of Roll20's own handler and let it build the records. Armour, magic items and
-containers stop being separate problems, and the hand-written record code
-becomes a fallback for items with no compendium page rather than the main
-path.
+The probe did recover the global's source, which closes the last plausible
+side door:
+
+```js
+window.wantsToReceiveDrop = function (d, u, r) {
+  pendingDropCallbacks.push({element: d, e: u, callback: r});
+  debounced_handleDrop();
+}
+```
+
+It is only a queue for resolving which target wins a contested drop. The
+callback that actually calls the relay is supplied BY the drop target, so
+pushing our own entry queues our own function — it does not hand us a relay.
+
+**Residual leads, deliberately not pursued:** a global Beacon relay object,
+or intercepting the `postMessage` traffic between the VTT and the sheet
+sandbox. Both are undocumented API on top of undocumented API, on a page
+where a wrong guess writes to somebody's real character, and both would need
+re-verifying every time Roll20 ships a build. Weighed against a
+record-writing path that already works, they are not worth it. If someone
+picks this up later, that is the ranked order — global relay first, wire
+protocol second — and this section is the evidence they would otherwise
+spend an evening re-deriving.
+
+**The decision, then:** writing records per item type is the path, and it is
+a considered choice rather than an unexamined default. Armour, containers
+and magic items each need their two dumps (`payloadDump` then `weaponDump`)
+and a rule, exactly as weapons did.
 
 **Worth doing before the next item type is built by hand.** If (1) or (2)
 works, armour, magic items and containers all stop being separate problems.
