@@ -211,6 +211,36 @@ window.PartyTools.sheets.probeDropTargets()
 Record the answers here either way. A `verdict` of "THE SHEET ENRICHED IT"
 means a page id may be enough and the per-type work can stop.
 
+### ROUTE 1 — answered, and it looks live (Aug 2026)
+
+`probeDropTargets()` against an open character sheet found this among the
+registered jQuery UI droppables:
+
+```
+{ "classes": "charsheet-compendium-drop-target ui-droppable",
+  "insideCharacterSheet": true, "visible": false }
+```
+
+Roll20 has a **dedicated, named drop target on the character sheet for
+compendium items**. That is the entry point to the code that builds a weapon
+properly — attacks, damage, mastery and all — and it is registered in
+`$.ui.ddmanager`, which `drops.js` already interacts with on every drag.
+
+`visible: false` is expected: the target is presumably only shown mid-drag,
+and being invisible does not stop its handler being invoked directly.
+
+**Next step, and it is a small one:** `PT.sheets.probeCompendiumDrop()` reads
+that droppable's `accept` and its `drop` handler source. Once we know what
+the handler reads off the dragged element — `drops.js` already knows a
+compendium drag carries `data-pagename` and `data-expansionid` — a
+synthesised jQuery UI drop can very likely be handed straight to it.
+
+If that works, claiming becomes: put the item's compendium reference in front
+of Roll20's own handler and let it build the records. Armour, magic items and
+containers stop being separate problems, and the hand-written record code
+becomes a fallback for items with no compendium page rather than the main
+path.
+
 **Worth doing before the next item type is built by hand.** If (1) or (2)
 works, armour, magic items and containers all stop being separate problems.
 If neither does, at least the per-type approach is a considered choice rather

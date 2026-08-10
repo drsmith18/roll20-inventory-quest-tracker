@@ -683,6 +683,72 @@
     return out;
   };
 
+  // ROUTE 1, step 2. A probe of the sheet's OWN compendium drop target.
+  //
+  // probeDropTargets found `charsheet-compendium-drop-target` registered on an
+  // open character sheet — Roll20's own landing zone for a compendium drag,
+  // i.e. the code that builds a weapon properly, attacks and all. This reads
+  // that droppable's configuration and the source of its handlers, so we can
+  // see what a synthesised drop would have to supply.
+  //
+  // Read-only: it inspects the handler, it does not fire it.
+  PT.sheets.probeCompendiumDrop = function () {
+    var out = { version: PT.VERSION, targets: [] };
+    if (!window.$ || !$.ui || !$.ui.ddmanager) {
+      out.error = "jQuery UI's ddmanager isn't on this page";
+      return logDrop(out);
+    }
+    var reg = $.ui.ddmanager.droppables || {};
+    Object.keys(reg).forEach(function (scope) {
+      (reg[scope] || []).forEach(function (d) {
+        var el = d && d.element && d.element[0];
+        if (!el) return;
+        var classes = typeof el.className === "string" ? el.className : "";
+        if (classes.indexOf("compendium-drop-target") === -1) return;
+
+        var opts = d.options || {};
+        var chain = [];
+        var node = el;
+        for (var i = 0; node && i < 8; i++) {
+          chain.push(node.tagName + (node.id ? "#" + node.id : "") +
+            (typeof node.className === "string" && node.className
+              ? "." + node.className.trim().split(/\s+/).slice(0, 3).join(".")
+              : ""));
+          node = node.parentElement;
+        }
+        out.targets.push({
+          scope: scope,
+          classes: classes,
+          attachedToDocument: !!(el.ownerDocument && el.ownerDocument.contains(el)),
+          visible: !!(el.offsetWidth || el.offsetHeight),
+          // Which character this target belongs to, if the sheet says so.
+          nearbyCharacterId: (function () {
+            var dlg = el.closest && el.closest("[data-characterid], .characterdialog");
+            return dlg ? (dlg.getAttribute("data-characterid") || dlg.id || null) : null;
+          })(),
+          ancestry: chain.join(" < "),
+          optionKeys: Object.keys(opts).sort().join(","),
+          scopeOption: opts.scope || null,
+          tolerance: opts.tolerance || null,
+          // The interesting part: what it accepts, and what it does. Reading
+          // these is how we learn what a synthesised drag must look like.
+          accept: typeof opts.accept === "function" ? String(opts.accept).slice(0, 800) : (opts.accept || null),
+          dropHandler: typeof opts.drop === "function" ? String(opts.drop).slice(0, 2500) : null,
+          overHandler: typeof opts.over === "function" ? String(opts.over).slice(0, 600) : null
+        });
+      });
+    });
+    if (!out.targets.length) {
+      out.error = "no compendium drop target registered — open a character sheet first, and leave it open";
+    }
+    return logDrop(out);
+  };
+
+  function logDrop(o) {
+    console.log("[PartyTools] probeCompendiumDrop:\n" + JSON.stringify(o, null, 2));
+    return o;
+  }
+
   // ROUTE 2. Does the sheet enrich a record that carries only a
   // compendiumPageID? Writes a deliberately BARE item — a name, a page id,
   // and nothing else, no weaponData, no attacks — then waits and re-reads to
@@ -793,17 +859,26 @@
       return Promise.resolve({ error: "storage isn't ready, so a name can't be looked up — pass a page id" });
     }
     return PT.store.snapshot(PT.envInfo).then(function (snap) {
-      var found = null;
+      var match = null;
       ((snap && snap.bags) || []).forEach(function (b) {
         (b.doc.items || []).forEach(function (it) {
-          if (!found && (it.name || "").toLowerCase().indexOf(arg.toLowerCase()) !== -1 && it.compendiumPageID) {
-            found = it.compendiumPageID;
-          }
+          if (!match && (it.name || "").toLowerCase().indexOf(arg.toLowerCase()) !== -1) match = it;
         });
       });
-      return found
-        ? { pageId: found }
-        : { error: "no bagged item matching " + JSON.stringify(arg) + " has a stored page id. Items dropped before v0.9.8 don't have one — re-drop it from the compendium, or pass a page id directly." };
+      if (!match) return { error: "no item matching " + JSON.stringify(arg) + " in any bag you can see" };
+      if (match.compendiumPageID) return { pageId: match.compendiumPageID };
+      // Dropped before v0.9.8, so no page id was stored — but the compendium
+      // reference was, and re-resolving it is a same-origin lookup we already
+      // do on every drop. Cheaper than making someone re-drop the item.
+      if (PT.drops && PT.drops.resolve && match.pagename) {
+        return PT.drops.resolve({ pagename: match.pagename, expansionId: match.expansionId })
+          .then(function (fresh) {
+            return fresh && fresh.compendiumPageID
+              ? { pageId: fresh.compendiumPageID, note: "page id fetched live; this item predates v0.9.8" }
+              : { error: "could not resolve a page id for " + JSON.stringify(match.name) + " from the compendium" };
+          });
+      }
+      return { error: JSON.stringify(match.name) + " has no compendium reference at all (added by hand, or a name-only drop), so there is no page id to find" };
     });
   }
 

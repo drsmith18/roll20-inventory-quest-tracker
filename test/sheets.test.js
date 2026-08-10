@@ -428,6 +428,33 @@ const SHEET_GRAPH = JSON.stringify([
   check("an empty page id is refused", !!probeBadId.error, JSON.stringify(probeBadId));
   check("the drop-target probe degrades without jQuery UI",
     !!PT.sheets.probeDropTargets().error);
+  check("the compendium-drop probe degrades without jQuery UI",
+    !!PT.sheets.probeCompendiumDrop().error);
+
+  // With a stubbed ddmanager holding a target shaped like the real one
+  // (found on a live sheet as `charsheet-compendium-drop-target`).
+  const el = win.document.createElement("div");
+  el.className = "charsheet-compendium-drop-target ui-droppable";
+  win.document.body.appendChild(el);
+  win.$ = Object.assign(() => ({}), {
+    ui: { ddmanager: { droppables: { default: [{
+      element: [el],
+      options: {
+        scope: "default", tolerance: "pointer",
+        accept: function (d) { return d.hasClass("compendium-item"); },
+        drop: function (event, ui) { return ui.draggable.attr("data-pagename"); }
+      }
+    }] } } }
+  });
+  const cd = PT.sheets.probeCompendiumDrop();
+  check("it finds the compendium drop target", cd.targets.length === 1, JSON.stringify(cd.error));
+  check("it reports what the target accepts", /compendium-item/.test(cd.targets[0].accept),
+    cd.targets[0].accept);
+  check("it reports the drop handler's source, which is the whole point",
+    /data-pagename/.test(cd.targets[0].dropHandler), cd.targets[0].dropHandler);
+  check("it reports the ancestry so we know where it lives",
+    /DIV/.test(cd.targets[0].ancestry), cd.targets[0].ancestry);
+  delete win.$;
 
   win.Campaign.characters.models = [hero2];
   const missing = await PT.sheets.report("Nobody At All");
