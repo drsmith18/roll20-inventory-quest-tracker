@@ -88,30 +88,66 @@ sheet does NOT derive an attack from `weaponData`. A claimed longsword shows
 as a weapon but offers no attack roll even when equipped, so the payload's
 other four records (Attack, two Damage, Mastery) have to be written.
 
-What a first partial dump of a real sheet showed, from a `Sunsword` the sheet
-built itself:
+### The wiring, as read off a real sheet
 
-- a top-level weapon has **`parentID: ""`** — an empty string, not a
-  container id. Items inside a container point at it normally (a Waterskin's
-  parent is a `Priest's Pack`).
-- the shape is `Item → childIDs → Attack → childIDs → Damage`.
-- Damage records carry `diceSize`, `_diceCount`, `damageType`, `critDiceSize`,
-  `ability`, `overrideCrit` — **not** the compendium's `dice: "1d8"` string.
-  So the payload's damage content needs translating into those fields, not
-  copying.
-- Attack records carry `actionType`, `attack`, `save`, `autoHit`,
-  `onHitDisplay`, `description`, plus the usual `_enabled`, `arrayPosition`,
-  `builderDisplayName`, `source`, `sourceID`, `compendiumPageID`.
-- a weapon can have SEVERAL attacks (`Sunsword`, `Sunsword (Two-handed)`,
-  `Sunsword (Finesse)`) while the Item's own `childIDs` listed only one — so
-  where the extra attacks attach is still unknown, and is the thing to settle
-  next.
+Captured with `PT.sheets.weaponDump` from a longsword Roll20 itself put on a
+character. This is the target structure; it does not need rediscovering.
 
-**Settles it:** `PT.sheets.weaponDump("Character", "Longsword")` against a
-sheet holding both a Roll20-made longsword and a Party-Tools-claimed one. It
-dumps one item's whole subtree with values, what it hangs off, and any
-same-named records living elsewhere — scoped that way because a whole-sheet
-dump overflowed the console.
+A versatile weapon is **five records**: the Item, two Attacks (one-handed and
+two-handed), and a Damage under each Attack.
+
+```
+Item  parentID: ""                        <- loose item; NOT a container id
+      childIDs: "[attack1, attack2]"
+      weaponData: {category, training, type}
+      equipData: {equippable: true, equipped: false}
+      properties: "[\"Versatile (1d10)\"]"   <- a STRING holding a JSON array
+      source: "Class", sourceID: <class id>, compendiumPageID: <page id>
+
+Attack  parentID: <itemId>                 <- child of the Item
+        sourceID: <itemId>, source: "Item"
+        childIDs: "[damageId]"
+        cascades: { <itemId>: "[\"Equip\"]" }   <- ties the attack to equipping
+        actionType: "Action"
+        attack: { abilityBonus: "Strength", type: "Melee" }
+        name: "Longsword (One-Handed)"
+        recordName: "Longsword Attack One-Handed"
+
+Damage  parentID: <attackId>               <- child of the ATTACK
+        sourceID: <itemId>                 <- but sourced from the ITEM
+        source: "Item"
+        cascades: { <itemId>: "[\"Equip\"]" }
+        _diceCount: 1, diceSize: "d8", damageType: "Slashing"
+        ability: "auto", critDiceSize: "", overrideCrit: false
+```
+
+Note `diceSize: "d8"` with a separate `_diceCount`, not a `"1d8"` string.
+
+Two things this dump already fixed, in v0.9.5:
+
+- **Item placement.** A loose item belongs at `parentID: ""`. The code used
+  to copy the parent of whichever top-level item it found first — and class
+  starting equipment hangs off a `Class Level` record while still counting as
+  top-level, so a claimed item could have been filed inside the character's
+  Paladin class level. It only ever worked by luck of ordering.
+- `subtreeIds` walking a real sheet showed `(cycle)` markers in ancestry
+  output, i.e. the guards there earn their keep on real data.
+
+### What's still needed to build it
+
+The compendium payload's own Attack and Damage records, in payload order —
+`PT.sheets.payloadDump("Longsword")` on an item sitting in a bag. Five
+records were reported for a longsword, which matches Item + 2 Attacks +
+2 Damages exactly, but their field names and order have not been seen.
+
+Order is the only thing that could pair a Damage with its Attack, since the
+payload carries no links — so if the order turns out to be ambiguous
+(e.g. Item, Attack, Attack, Damage, Damage with names that don't correspond),
+pairing has to come from the names instead, and that needs checking rather
+than assuming.
+
+(The `Weapon Mastery Known` record seen next to the longsword comes from the
+character's **class**, not from the item, so it is not ours to write.)
 
 ---
 

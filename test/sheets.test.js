@@ -87,10 +87,11 @@ const SHEET_GRAPH = JSON.stringify([
     root.properties && root.properties.join(",") === "Versatile (1d10)", JSON.stringify(root.properties));
   check("the compendium's full description won over the bag's copy",
     /Mastery: Sap/.test(root.description), root.description);
-  check("the item landed under the character's own item parent",
-    root.parentID === "inventory", root.parentID);
-  check("the parent registered it as a child",
-    JSON.parse(ints.inventory.childIDs).includes(add.id), ints.inventory.childIDs);
+  // Verified against a real sheet: a loose item sits at parentID "". The old
+  // code copied another top-level item's parent, which on a real character
+  // could have filed the claim inside a Class Level record.
+  check("the item is placed loose, at parentID \"\"", root.parentID === "", JSON.stringify(root.parentID));
+  check("it did not inherit another item's parent", root.parentID !== "inventory", root.parentID);
   check("quantity came from the claim, not the compendium", root.quantity === 2, root.quantity);
   check("it got a fresh id and an empty child list",
     root._id === add.id && root.childIDs === "[]", root._id + " / " + root.childIDs);
@@ -157,8 +158,8 @@ const SHEET_GRAPH = JSON.stringify([
     // parentID or a reused id from the payload would corrupt the sheet.
     const rec = integrantsOf(c)[r.id];
     check(label + " -> structural fields are ours, not the payload's",
-      rec._id === r.id && rec.parentID === "inventory" && rec.childIDs === "[]",
-      rec._id + " / " + rec.parentID + " / " + rec.childIDs);
+      rec._id === r.id && rec.parentID === "" && rec.childIDs === "[]",
+      rec._id + " / " + JSON.stringify(rec.parentID) + " / " + rec.childIDs);
   }
 
   // ---- taking an item back off a sheet -------------------------------------

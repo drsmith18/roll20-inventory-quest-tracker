@@ -504,6 +504,48 @@
     return chain.join(" < ");
   }
 
+  // Console diagnostic: PT.sheets.payloadDump("Longsword")
+  //
+  // The other side of weaponDump: what the COMPENDIUM gives us for an item
+  // sitting in a bag, every record in full and in order. weaponDump shows the
+  // structure a weapon needs on the sheet; this shows the content we have to
+  // pour into it. Order matters and is part of what's being read here — it is
+  // the only thing that could pair a Damage record with its Attack, since the
+  // payload carries no links.
+  //
+  // Read-only.
+  PT.sheets.payloadDump = function (itemName) {
+    if (!PT.store || !PT.store.snapshot) {
+      return Promise.resolve({ error: "storage isn't ready on this client yet" });
+    }
+    var needle = String(itemName || "").toLowerCase();
+    return PT.store.snapshot(PT.envInfo).then(function (snap) {
+      var out = { version: PT.VERSION, item: itemName, matches: [] };
+      ((snap && snap.bags) || []).forEach(function (b) {
+        (b.doc.items || []).forEach(function (it) {
+          if ((it.name || "").toLowerCase().indexOf(needle) === -1) return;
+          var all = allPayloads(it.datarecords);
+          out.matches.push({
+            bag: b.doc.name,
+            name: it.name,
+            hasPayload: !!it.datarecords,
+            count: all ? all.length : 0,
+            types: all ? all.map(function (p) { return p.type; }) : null,
+            // In payload order, deliberately: see above.
+            records: all
+              ? all.map(function (p) { return JSON.stringify(p).slice(0, 1800); })
+              : String(it.datarecords || "").slice(0, 600)
+          });
+        });
+      });
+      if (!out.matches.length) out.error = "no item matching " + JSON.stringify(itemName) + " in any bag you can see";
+      return out;
+    }).then(function (r) {
+      console.log("[PartyTools] payloadDump:\n" + JSON.stringify(r, null, 2));
+      return r;
+    });
+  };
+
   // Console diagnostic: PT.sheets.weaponDump("Character Name", "Longsword")
   //
   // Everything about ONE item, in full, and nothing else. A whole sheet is
@@ -792,17 +834,17 @@
       var ints = next.integrants && next.integrants.integrants;
       if (!ints) return { ok: false, err: "store has no integrants; cannot write item" };
 
-      // Find an existing top-level item (its parent is not itself an Item)
-      // and reuse that placement — never guess a parent out of thin air.
-      var itemIds = Object.keys(ints).filter(function (k) { return ints[k].type === "Item"; });
-      var topLevel = itemIds.filter(function (k) {
-        var parent = ints[ints[k].parentID];
-        return !parent || parent.type !== "Item";
-      });
-      if (!topLevel.length) {
-        return { ok: false, err: "could not find an existing top-level item to place the new item alongside; refusing to guess a parent" };
-      }
-      var parentId = ints[topLevel[0]].parentID;
+      // A loose item on this sheet has parentID "" — verified on a real
+      // character, both for an item Party Tools wrote and for the sheet's own
+      // loose items. Items INSIDE a container point at it instead (a
+      // Waterskin's parent is a Priest's Pack).
+      //
+      // This used to copy the parent of whichever top-level item it found
+      // first, which was a latent bug: class starting equipment hangs off a
+      // "Class Level" record and still counts as top-level, so a claimed item
+      // could have been filed inside the character's Paladin class level. It
+      // only ever worked because the first item found happened to have "".
+      var parentId = "";
 
       var qty = Number(item && item.qty) || 1;
       var name = (item && item.name) || "";
