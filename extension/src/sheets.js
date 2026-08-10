@@ -488,18 +488,39 @@
     };
   };
 
-  // Console diagnostic: PT.sheets.report("Character Name")
+  // The chain of record types from here up to the sheet root, e.g.
+  // "Attack < Item < Inventory < (root)". Where a record SITS is half of what
+  // makes the sheet treat it as an attack, and a parentID alone doesn't show
+  // it. Bounded, so a cycle in the data can't hang the diagnostic.
+  function ancestry(ints, id) {
+    var chain = [], seen = {}, cur = ints[id], depth = 0;
+    while (cur && depth++ < 12) {
+      chain.push(cur.type || "?");
+      if (seen[cur._id]) { chain.push("(cycle)"); break; }
+      seen[cur._id] = true;
+      cur = ints[cur.parentID];
+    }
+    chain.push("(root)");
+    return chain.join(" < ");
+  }
+
+  // Console diagnostic: PT.sheets.report("Character Name", {full: true})
   //
-  // Answers the question "why did my longsword land as a possession?" in one
-  // paste, because there are two completely different causes and the fix
-  // differs: either the compendium payload was REJECTED and we wrote a plain
-  // item (look at bagItems[].verdict), or the graph was written faithfully
-  // and the sheet still doesn't consider it a weapon (compare `sheet` below
-  // against the same weapon added through Roll20's own sheet UI — whatever
-  // differs is what makes a weapon a weapon).
+  // Dumps, in one paste: every bag item with its explainGraph verdict (which
+  // includes the compendium payload's unwritten Attack/Damage records in
+  // full), and every Item/Attack/Damage record on a named character with its
+  // ancestry and field names.
   //
-  // Read-only. Dumps structure and field NAMES, not values.
-  PT.sheets.report = function (characterName) {
+  // With {full: true} it also includes each sheet record's VALUES, capped.
+  // That is what's needed to work out how the sheet wires an attack to its
+  // weapon: put a Roll20-made weapon and a Party-Tools-made one on the same
+  // character, and whatever differs between them is the answer.
+  //
+  // Read-only. Values are D&D content — no credentials, no campaign ids —
+  // but it is your character sheet, so skim it before pasting anywhere
+  // public.
+  PT.sheets.report = function (characterName, opts) {
+    opts = opts || {};
     var out = { version: PT.VERSION, character: characterName || null };
     var character = null;
     try {
@@ -533,6 +554,17 @@
       return prepareRead(character).then(function (p) {
         if (!p.ok) { out.sheet = "could not read: " + p.err; return out; }
         var ints = (p.doc.integrants && p.doc.integrants.integrants) || {};
+
+        // Every record type on the sheet with a count. Cheap, and it reveals
+        // a container we'd otherwise never see — if attacks hang off some
+        // "Actions" root rather than off the item, this is where it shows up.
+        var counts = {};
+        Object.keys(ints).forEach(function (k) {
+          var t = (ints[k] && ints[k].type) || "?";
+          counts[t] = (counts[t] || 0) + 1;
+        });
+        out.typeCounts = counts;
+
         out.sheet = Object.keys(ints).filter(function (k) {
           var t = ints[k] && ints[k].type;
           // Everything an item can be made of. Features, spells and the rest
@@ -544,6 +576,8 @@
           var s = shapeOf(rec);
           s.parentType = parent ? parent.type : "(not an integrant — a sheet root)";
           s.parentName = parent ? parent.name : null;
+          s.ancestry = ancestry(ints, k);
+          if (opts.full) s.record = JSON.stringify(rec).slice(0, 1500);
           return s;
         });
         return out;
@@ -796,9 +830,11 @@ window.PartyTools.sheets.controlledBy({ isGM: true, playerId: null })
 //      add a longsword through ROLL20'S OWN sheet UI (its compendium/add
 //      button), and claim a longsword from a bag with Party Tools. Then both
 //      are on the same sheet and the dump shows what differs between a
-//      weapon the sheet made and one we made.
+//      weapon the sheet made and one we made — including how the sheet's own
+//      Attack and Damage records attach to their item, which is the part the
+//      compendium payload does not describe.
 /*
-window.PartyTools.sheets.report("Spike Warm");
+copy(JSON.stringify(await window.PartyTools.sheets.report("Spike Warm", { full: true }), null, 2))
 */
 //
 // (b) Read a named character's coin purse (read-only, safe to run any time):

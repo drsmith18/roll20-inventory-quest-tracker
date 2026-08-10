@@ -240,6 +240,21 @@ const SHEET_GRAPH = JSON.stringify([
     rep.sheet.every(r => !!r.parentType), JSON.stringify(rep.sheet[0]));
   check("it lists field names so a native weapon can be diffed against ours",
     rep.sheet.every(r => typeof r.keys === "string" && r.keys.length));
+  check("it reports the ancestry chain, not just the parent",
+    rep.sheet.every(r => /\(root\)$/.test(r.ancestry || "")),
+    JSON.stringify(rep.sheet.map(r => r.ancestry)));
+  check("an Attack's ancestry shows it hanging off the Item",
+    /^Attack < Item </.test(rep.sheet.find(r => r.type === "Attack").ancestry),
+    rep.sheet.find(r => r.type === "Attack").ancestry);
+  check("it counts every record type on the sheet",
+    rep.typeCounts && rep.typeCounts.Item >= 1 && rep.typeCounts.Attack === 1,
+    JSON.stringify(rep.typeCounts));
+  check("values are withheld unless full is asked for", rep.sheet.every(r => r.record === undefined));
+  const full = await PT.sheets.report(hero2.get("name"), { full: true });
+  check("full: true includes the record values",
+    full.sheet.every(r => typeof r.record === "string" && r.record.length),
+    JSON.stringify(full.sheet[0] && full.sheet[0].record || "").slice(0, 120));
+
   const missing = await PT.sheets.report("Nobody At All");
   check("an unknown character is reported, not thrown", typeof missing.sheet === "string", missing.sheet);
   check("a rejected payload shows its raw shape for diagnosis",
