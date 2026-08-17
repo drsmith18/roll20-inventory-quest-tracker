@@ -108,7 +108,11 @@
     ".pt-drop-over{outline:3px dashed var(--pt-accent);outline-offset:-3px}",
     ".pt-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:99999;background:#17181c;color:var(--pt-text);border:1px solid var(--pt-edge2);border-left:3px solid var(--pt-accent);border-radius:5px;padding:9px 16px;font:13px Arial,Helvetica,sans-serif;box-shadow:0 4px 20px rgba(0,0,0,.5);max-width:70vw}",
     ".pt-modal-back{position:fixed;inset:0;z-index:99995;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center}",
-    ".pt-modal{background:var(--pt-bg);color:var(--pt-text);border:1px solid var(--pt-edge2);border-radius:6px;padding:16px;width:340px;font:13px/1.5 Arial,Helvetica,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,.6)}",
+    // max-height is a backstop against ANY modal growing past the viewport:
+    // the box is centred, so an over-tall one used to push its own OK/Cancel
+    // row off-screen with no way to scroll to it. Lists that can grow get
+    // their own .pt-split-recipients scroller; this catches everything else.
+    ".pt-modal{background:var(--pt-bg);color:var(--pt-text);border:1px solid var(--pt-edge2);border-radius:6px;padding:16px;width:340px;max-height:88vh;overflow-y:auto;font:13px/1.5 Arial,Helvetica,sans-serif;box-shadow:0 8px 32px rgba(0,0,0,.6)}",
     // Modals are appended to document.body, OUTSIDE #pt-panel, so Roll20's
     // own stylesheet colours their h3/label/span text and the panel's colour
     // never reaches them — which is why dialog text read as dark-on-charcoal.
@@ -656,13 +660,23 @@
       } else {
         // INV-23a: only asks which character when there IS a choice. Sorted
         // exactly as controlledBy returned them; default the first.
+        //
+        // The radios go in a SCROLLING wrapper, the same one the coin-split
+        // and deposit pickers already use. Without it the list ran off the
+        // bottom of the modal with no way to reach the rest: a player gets
+        // only the characters they control, but controlledBy short-circuits
+        // for the GM and returns every character in the campaign, so on a
+        // game with a full NPC roster the DM got one unbounded radio each.
+        var charWrap = PT.el("div", { class: "pt-split-recipients" });
         chars.forEach(function (ch, i) {
           var unsupported = !PT.sheets.isSupported(ch);
-          c.appendChild(PT.el("label", {}, [
+          charWrap.appendChild(PT.el("label", {}, [
             PT.el("input", { type: "radio", name: "pt-claim-char", value: String(i), checked: i === 0 ? "checked" : undefined }),
             PT.el("span", { text: ch.get("name") + (unsupported ? " — unsupported sheet, will be recorded as assigned instead" : "") })
           ]));
         });
+        c.appendChild(PT.el("div", { class: "pt-note", text: "To which character? (" + chars.length + " to choose from)" }));
+        c.appendChild(charWrap);
       }
       if (stack > 1) {
         c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Quantity (of " + stack + "):" })]));
@@ -822,13 +836,17 @@
 
     if (chars.length === 1) { pickItems(chars[0]); return; }
     modal("Put an item into “" + bag.doc.name + "”", function (c) {
-      c.appendChild(PT.el("div", { class: "pt-note", text: "Take an item from which character?" }));
+      c.appendChild(PT.el("div", { class: "pt-note", text: "Take an item from which character? (" + chars.length + " to choose from)" }));
+      // Same unbounded list as the claim picker above, for the same reason —
+      // and the same wrapper.
+      var charWrap = PT.el("div", { class: "pt-split-recipients" });
       chars.forEach(function (ch, i) {
-        c.appendChild(PT.el("label", {}, [
+        charWrap.appendChild(PT.el("label", {}, [
           PT.el("input", { type: "radio", name: "pt-deposit-char", value: String(i), checked: i === 0 ? "checked" : undefined }),
           PT.el("span", { text: ch.get("name") })
         ]));
       });
+      c.appendChild(charWrap);
     }, function (c) {
       var sel = c.querySelector("input[name=pt-deposit-char]:checked");
       if (!sel) return false;

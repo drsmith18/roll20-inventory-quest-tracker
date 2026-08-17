@@ -1,7 +1,7 @@
-// Panel behaviours reported from the table (issues #18, #19, #20), driven
+// Panel behaviours reported from the table (issues #3, #18, #19, #20), driven
 // through the real UI in jsdom: a hidden bag's header layout, adding several
-// items without reopening the box, and what a player is told after an item
-// moves off a character sheet.
+// items without reopening the box, what a player is told after an item moves
+// off a character sheet, and the character pickers a DM has to scroll.
 const { createWorld, makeCharacter, integrantsOf, wait } = require("./lib/world");
 const { section, check, report } = require("./lib/assert");
 
@@ -141,9 +141,52 @@ async function depositTellsYouToReopen() {
   check("the message names the character", /Aria/.test(toastText(w)), toastText(w));
 }
 
+// #3 — "it would be nice to have a scrollbar to look through all of the
+// available characters." controlledBy short-circuits for the GM and returns
+// every character in the campaign, so the DM's list is as long as the NPC
+// roster; the claim modal was the one picker with no scroll container.
+async function characterPickersScroll() {
+  section("#3 — the character pickers are bounded:");
+  const w = await readyDM();
+  for (let i = 0; i < 30; i++) {
+    w.win.Campaign.characters.models.push(makeCharacter("NPC " + i, { controlledby: "" }));
+  }
+
+  // An item to claim, so the → button has something to open on.
+  w.click(iconBtn(w, "Add an item by name"));
+  setInput(w, "[data-f=name]", "Shortbow");
+  w.click(modalBtn(w, "Add"));
+  await wait(2000);
+
+  w.click(iconBtn(w, "Claim this item to one of your characters"));
+  const claimWrap = w.$(".pt-modal .pt-split-recipients");
+  check("the claim picker has a scrolling wrapper", !!claimWrap);
+  check("every character is inside it, not loose in the modal",
+    claimWrap && claimWrap.querySelectorAll("input[name=pt-claim-char]").length ===
+      w.all(".pt-modal input[name=pt-claim-char]").length,
+    claimWrap ? claimWrap.querySelectorAll("input[name=pt-claim-char]").length + " of " +
+      w.all(".pt-modal input[name=pt-claim-char]").length : "no wrapper");
+  check("the DM is told how long the list is",
+    /30 to choose from|31 to choose from/.test(w.$(".pt-modal").textContent),
+    w.$(".pt-modal").textContent.slice(0, 120));
+  check("the first character is still preselected",
+    !!w.$(".pt-modal input[name=pt-claim-char]:checked"));
+  w.click(modalBtn(w, "Cancel"));
+
+  // The deposit picker's character step had the same unbounded list. Its
+  // characters need supported sheets to appear at all.
+  w.click(iconBtn(w, "Put an item from a character sheet into this bag"));
+  const depWrap = w.$(".pt-modal .pt-split-recipients");
+  check("the deposit character picker has one too", !!depWrap);
+  check("its characters are inside it",
+    depWrap && depWrap.querySelectorAll("input[name=pt-deposit-char]").length > 1,
+    depWrap ? depWrap.querySelectorAll("input[name=pt-deposit-char]").length + " radio(s)" : "no wrapper");
+}
+
 (async () => {
   await hiddenBagHeader();
   await addingSeveralItems();
   await depositTellsYouToReopen();
+  await characterPickersScroll();
   report("panel-ui");
 })();
