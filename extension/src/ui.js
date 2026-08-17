@@ -30,6 +30,9 @@
   // so by the time onDrop fires this always reflects the shift state of that
   // exact drop's mouseup, not some earlier or later one.
   var lastDropShiftKey = false;
+  // Scroll position to restore once a tab that renders asynchronously (the
+  // Log) has its content — see renderBody.
+  var pendingScrollTop = 0;
 
   // Palette follows Roll20's own dark UI: charcoal surfaces, thin grey
   // borders, off-white text, restrained crimson accent. Nothing purple.
@@ -53,9 +56,22 @@
     ".pt-body{overflow-y:auto;padding:10px 12px;flex:1}",
     ".pt-bag{border:1px solid var(--pt-edge);border-radius:5px;margin-bottom:12px;background:var(--pt-bg2)}",
     ".pt-bag.pt-hidden-bag{border:2px dashed #b3455a;background:repeating-linear-gradient(45deg,#26282e,#26282e 14px,#2d262b 14px,#2d262b 28px)}",
-    ".pt-hidden-badge{background:#b3455a;color:#fff;font-size:10px;font-weight:bold;border-radius:3px;padding:2px 7px;margin-left:6px;letter-spacing:.3px}",
+    // UI-7's "players can NOT see this" marker used to sit INSIDE .pt-baghead,
+    // where its 34 characters competed with the bag name and every control on
+    // the row: on a hidden bag the buttons were squeezed sideways and the
+    // delete icon ended up hard to hit deliberately. It gets its own
+    // full-width strip under the head instead — louder, not quieter, and the
+    // head keeps its full width whether the bag is hidden or not.
+    ".pt-hidden-strip{display:flex;align-items:center;gap:6px;padding:4px 10px;background:rgba(179,69,90,.2);border-bottom:1px solid var(--pt-edge);color:#f3c6d0;font-size:10.5px;font-weight:bold;letter-spacing:.3px}",
     ".pt-baghead{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--pt-edge)}",
-    ".pt-bagname{font-weight:bold;font-size:14px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+    // Controls never shrink; only the name gives up space (it ellipsises).
+    ".pt-baghead button,.pt-baghead select{flex:0 0 auto}",
+    ".pt-bagname{font-weight:bold;font-size:14px;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+    // Deleting a bag is the one irreversible control on the row and it sits
+    // next to hide/reveal, which the DM uses constantly. Set apart by a rule
+    // and extra space so the two aren't neighbours by accident.
+    ".pt-iconbtn.pt-del{margin-left:10px;padding-left:10px;border-left:1px solid var(--pt-edge2);border-radius:0 4px 4px 0;color:#c98a8a}",
+    ".pt-iconbtn.pt-del:hover{background:#4a2b2e;color:#f0c3cd}",
     ".pt-purse{padding:6px 10px;color:var(--pt-gold);font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--pt-edge)}",
     ".pt-purse:hover{background:var(--pt-bg3)}",
     ".pt-items{padding:4px 10px 8px}",
@@ -359,29 +375,62 @@
     showForm();
   }
 
+  // Stocking a bag is rarely a single item: the modal therefore has TWO ways
+  // out. "Add" adds and closes as before; "Add & another" adds and keeps the
+  // form open with the quantity and description carried over and the name
+  // selected, so ten torches, ten rations and ten arrows are one visit
+  // instead of ten round trips through the bag's + button.
   function addItemModal(bag) {
+    function read(c) {
+      var name = c.querySelector("[data-f=name]").value.trim();
+      if (!name) return null;
+      var qty = parseInt(c.querySelector("[data-f=qty]").value, 10) || 1;
+      return {
+        name: name,
+        qty: qty < 1 ? 1 : qty,
+        description: c.querySelector("[data-f=desc]").value.trim(),
+        resolved: false
+      };
+    }
+
     modal("Add item — " + bag.doc.name, function (c) {
       c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Name:" })]));
       c.appendChild(PT.el("input", { type: "text", "data-f": "name" }));
       c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Quantity:" })]));
-      c.appendChild(PT.el("input", { type: "number", value: "1", "data-f": "qty" }));
+      c.appendChild(PT.el("input", { type: "number", value: "1", min: "1", "data-f": "qty" }));
       c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Description (optional):" })]));
       c.appendChild(PT.el("input", { type: "text", "data-f": "desc" }));
+      c.appendChild(PT.el("div", { class: "pt-row" }, [
+        PT.el("button", {
+          class: "pt-btn", text: "Add & another",
+          title: "Add this item and keep this box open for the next one",
+          onclick: function () {
+            var item = read(c);
+            if (!item) return;
+            PT.store.addItem(env, bag.id, bag.doc.name, item).then(function (r) {
+              if (!r.ok) { ui.toast("Add failed: " + r.err); return; }
+              ui.toast("Added " + item.qty + "× “" + item.name + "” to “" + bag.doc.name + "”.", 2000);
+              // Name only: quantity and description stay, since a run of
+              // additions is usually the same shape of thing.
+              var nameInput = c.querySelector("[data-f=name]");
+              nameInput.value = "";
+              nameInput.focus();
+              ui.refresh();
+            });
+          }
+        })
+      ]));
       c.appendChild(PT.el("div", {
         class: "pt-note",
-        text: "Tip: you can also drag items from the Roll20 compendium straight onto a bag." +
+        text: "Tip: set Quantity to add several at once, or use “Add & another” to keep adding without reopening this box. You can also drag items from the Roll20 compendium straight onto a bag." +
           (env.isGM ? " Hold Shift while dropping to obscure it immediately — players never see its real stats." : "")
       }));
     }, function (c) {
-      var name = c.querySelector("[data-f=name]").value.trim();
-      if (!name) return false;
-      PT.store.addItem(env, bag.id, bag.doc.name, {
-        name: name,
-        qty: parseInt(c.querySelector("[data-f=qty]").value, 10) || 1,
-        description: c.querySelector("[data-f=desc]").value.trim(),
-        resolved: false
-      }).then(function (r) { if (!r.ok) ui.toast("Add failed: " + r.err); ui.refresh(); });
-    });
+      var item = read(c);
+      if (!item) return false;
+      PT.store.addItem(env, bag.id, bag.doc.name, item)
+        .then(function (r) { if (!r.ok) ui.toast("Add failed: " + r.err); ui.refresh(); });
+    }, { okText: "Add" });
   }
 
   function moveItemModal(bag, item) {
@@ -494,6 +543,21 @@
         });
       });
     }, { okText: "Obscure & add" });
+  }
+
+  // Roll20 builds a character sheet's view when the sheet is OPENED and does
+  // not redraw it when the underlying `store` attribute changes underneath —
+  // so an item we add or remove appears there only after the sheet is closed
+  // and reopened. Every sheet write is verified by re-read before we report
+  // success (sheets.js's writeStore), so the change has definitely landed;
+  // what the player is looking at is a stale view, not a failed write.
+  //
+  // Without saying so, that reads as "nothing happened", and the natural
+  // response is to do it again — which is how a shortbow deposited once gets
+  // deposited twice. There is no API to force the redraw, so every successful
+  // sheet write says this instead.
+  function sheetRefreshNote(charName) {
+    return " If " + charName + "’s character sheet is open, close and reopen it — Roll20 doesn’t redraw an open sheet.";
   }
 
   // ---- claim an item to a character sheet (INV-21/23a/23b/24) ---------------
@@ -645,7 +709,14 @@
           // picks up the bug report exactly which payload to go and dump.
           ui.toast("“" + item.name + "” is on the sheet, but " + r.unwrittenTypes.length +
             " part(s) of it weren't written (" + r.unwrittenTypes.join(", ") +
-            "). Check it works on the sheet — and please report it with the 🐞 button.", 12000);
+            "). Check it works on the sheet — and please report it with the 🐞 button." +
+            sheetRefreshNote(character.get("name")), 12000);
+        } else {
+          // The ordinary, working case used to be silent, which left the
+          // player staring at an unchanged open sheet with nothing to tell
+          // them why — see sheetRefreshNote.
+          ui.toast("“" + item.name + "” is now on " + character.get("name") + "’s sheet." +
+            sheetRefreshNote(character.get("name")), 9000);
         }
         ui.refresh();
       });
@@ -693,6 +764,13 @@
       modal("Put an item into “" + bag.doc.name + "” — from " + character.get("name"), function (c) {
         c.appendChild(PT.el("div", { class: "pt-note", text: "Pick one item to move off the sheet and into the bag:" }));
         c.appendChild(listWrap);
+        // Read live from the character's data, so it can disagree with an
+        // open sheet window — which is exactly what happens after a deposit
+        // (see sheetRefreshNote). Say which of the two is telling the truth.
+        c.appendChild(PT.el("div", {
+          class: "pt-note",
+          text: "This list is read from the character's live data. Something you already moved won't be here, even if the open sheet still shows it."
+        }));
         c.appendChild(PT.el("label", {}, [PT.el("span", { text: "Quantity:" })]));
         c.appendChild(PT.el("input", { type: "number", value: "1", min: "1", "data-f": "qty" }));
       }, function (c) {
@@ -714,7 +792,8 @@
             return;
           }
           if (!r.ok) { ui.toast("Nothing was changed: " + r.err); ui.refresh(); return; }
-          ui.toast("Moved " + qty + "× “" + item.name + "” into “" + bag.doc.name + "”.");
+          ui.toast("Moved " + qty + "× “" + item.name + "” into “" + bag.doc.name + "”." +
+            sheetRefreshNote(character.get("name")), 9000);
           ui.refresh();
         });
       }, { okText: "Put in bag" });
@@ -775,6 +854,7 @@
       var msg = env.playerName + " pushed " + a.label + " to " + character.get("name") + "’s sheet";
       PT.store.transferAssignment(env, bag.id, bag.doc.name, a.id, msg).then(function (r2) {
         if (!r2.ok) ui.toast("Coins were added to the sheet, but the assignment note couldn't be cleared: " + r2.err);
+        else ui.toast(a.label + " added to " + character.get("name") + "’s sheet." + sheetRefreshNote(character.get("name")), 9000);
         ui.refresh();
       });
     });
@@ -829,7 +909,10 @@
     var head = PT.el("div", { class: "pt-baghead" }, [
       PT.el("span", { class: "pt-bagname", text: d.name, title: d.name })
     ]);
-    if (bag.hidden) head.appendChild(PT.el("span", { class: "pt-hidden-badge", text: "HIDDEN — players can NOT see this" }));
+    // UI-7 marker, on its own strip below the head — see .pt-hidden-strip.
+    var hiddenStrip = bag.hidden
+      ? PT.el("div", { class: "pt-hidden-strip", text: "🙈 HIDDEN — players can NOT see this bag" })
+      : null;
     // INV-4: the DM can edit any bag; a player only a bag they created that
     // is still empty. Not shown at all when the viewer can't use it.
     var canEditBag = env.isGM || (PT.store.ownsBag(env, d) && !(d.items || []).length && PT.purseToCopper(d.purse) === 0);
@@ -872,7 +955,7 @@
         }
       }));
       head.appendChild(PT.el("button", {
-        class: "pt-iconbtn", text: "🗑", title: "Delete this bag",
+        class: "pt-iconbtn pt-del", text: "🗑", title: "Delete this bag",
         onclick: function () {
           var hasStuff = (d.items || []).length || PT.purseToCopper(d.purse) > 0;
           var others = snapshot.bags.filter(function (b) { return b.id !== bag.id; });
@@ -1000,7 +1083,7 @@
         [nameSpan, PT.el("span", { class: "pt-qty", text: "×" + (it.qty || 1) })].concat(actionBtns)));
     });
     var descDiv = d.desc ? PT.el("div", { class: "pt-bagdesc", text: d.desc }) : null;
-    var card = PT.el("div", { class: "pt-bag" + (bag.hidden ? " pt-hidden-bag" : "") }, [head, descDiv, purse].concat(assignRows, [items]));
+    var card = PT.el("div", { class: "pt-bag" + (bag.hidden ? " pt-hidden-bag" : "") }, [head, hiddenStrip, descDiv, purse].concat(assignRows, [items]));
     // every bag is its own drop target (UI-5: it's obvious which bag receives)
     PT.drops.arm(card, function (payload) {
       // INV-16a: capture the shift state of THIS drop's mouseup right away —
@@ -1144,6 +1227,10 @@
       entries.sort(function (a, b) { return a.t - b.t; });
       wrap.textContent = "";
       if (!entries.length) { wrap.appendChild(PT.el("div", { class: "pt-empty", text: "Nothing has happened yet." })); return; }
+      // The log arrives after renderBody's own restore ran against an empty
+      // body, so re-apply it here — otherwise every 4s poll while reading the
+      // log throws you back to the newest entry.
+      var restoreTo = pendingScrollTop;
       entries.slice(-200).reverse().forEach(function (e) {
         var line = [];
         if (e.gmOnly) line.push(PT.el("span", { class: "pt-gmtag", text: "DM ONLY" }));
@@ -1153,6 +1240,7 @@
         if (e.redacted) line.push(PT.el("span", { class: "pt-redacted", text: " (redacted)" }));
         wrap.appendChild(PT.el("div", { class: "pt-log-entry" + (e.gmOnly ? " pt-gmlog" : "") }, line));
       });
+      applyScrollTop(body, restoreTo);
     });
   }
 
@@ -1221,16 +1309,40 @@
     body.textContent = "";
   }
 
+  // The body is rebuilt from scratch on every render — including every 4s
+  // poll, every quantity change and every add — which reset the scroll to the
+  // top each time. With more than a screenful of bags that made repeated work
+  // on one bag (adding several items, nudging quantities) a scroll-back every
+  // single time. Scroll position is a view detail exactly like the search
+  // caret above, so it is captured and restored the same way. Clamped on
+  // restore because the new content may be shorter than the old.
+  //
+  // Deliberately NOT restored when the tab changed: a new tab starts at
+  // its own top, which is what tab-switching means.
+  var lastRenderedTab = null;
+  // Clamped, because the rebuilt content may be shorter than what was there.
+  function applyScrollTop(body, top) {
+    if (!top) return;
+    body.scrollTop = Math.min(top, Math.max(0, body.scrollHeight - body.clientHeight));
+  }
   function renderBody() {
     var body = panel.querySelector(".pt-body");
     var focusInfo = captureSearchFocus(body);
+    var scrollTop = body.scrollTop;
+    var sameTab = lastRenderedTab === activeTab;
     clearBody(body);
+    // The log fills in asynchronously, so the restore above lands on an empty
+    // body and clamps to 0 — renderLog re-applies this once its entries are
+    // in. Nothing else on screen renders late.
+    pendingScrollTop = sameTab ? scrollTop : 0;
     if (activeTab === "inventory") renderInventory(body);
     else if (activeTab === "log") renderLog(body);
     else renderAbout(body);
     panel.querySelectorAll(".pt-tab").forEach(function (t) {
       t.classList.toggle("pt-active", t.getAttribute("data-tab") === activeTab);
     });
+    if (sameTab) applyScrollTop(body, scrollTop);
+    lastRenderedTab = activeTab;
     restoreSearchFocus(body, focusInfo);
   }
 

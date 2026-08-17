@@ -4,7 +4,7 @@
   "private": true,
   "description": "Test harness for the Party Tools browser extension. The extension itself has no build step and no dependencies — this package exists only so the tests can use jsdom.",
   "scripts": {
-    "test": "node test/sheets.test.js && node test/storage-init.test.js"
+    "test": "node test/sheets.test.js && node test/storage-init.test.js && node test/panel-ui.test.js"
   },
   "devDependencies": {
     "jsdom": "^24.0.0"
