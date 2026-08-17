@@ -1,2 +1,8 @@
 node_modules/
 package-lock.json
+
+# Jules working state
+.jules/
+
+# Local Claude Code settings (holds per-machine MCP approvals; never shared)
+.claude/settings.local.json
