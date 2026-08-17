@@ -1,7 +1,8 @@
-// Panel behaviours reported from the table (issues #3, #18, #19, #20), driven
-// through the real UI in jsdom: a hidden bag's header layout, adding several
-// items without reopening the box, what a player is told after an item moves
-// off a character sheet, and the character pickers a DM has to scroll.
+// Panel behaviours reported from the table (issues #3, #17, #18, #19, #20),
+// driven through the real UI in jsdom: a hidden bag's header layout, adding
+// several items without reopening the box, what a player is told after an item
+// moves off a character sheet, the character pickers a DM has to scroll, and
+// which characters can actually receive an item.
 const { createWorld, makeCharacter, integrantsOf, wait } = require("./lib/world");
 const { section, check, report } = require("./lib/assert");
 
@@ -183,10 +184,80 @@ async function characterPickersScroll() {
     depWrap ? depWrap.querySelectorAll("input[name=pt-deposit-char]").length + " radio(s)" : "no wrapper");
 }
 
+// #17 — "any characters controlled by the DM that is not set up as a full
+// character ... should show that it is not eligible to move items to."
+//
+// A survey of a real 174-character campaign settled what "not eligible"
+// actually means, and it is not NPC-ness: DM-controlled NPCs on the 2024
+// sheet hold items perfectly well (a shop character had 22 of them), while a
+// character of any kind whose sheet has NEVER BEEN OPENED has no store to
+// write into, because the sheet builds it on first open. The old code told
+// both of those apart from success only by an error string written for a
+// developer.
+async function ineligibleCharactersSayWhy() {
+  section("#17 — a character that can't take the item says why:");
+  const w = await readyDM();
+
+  const opened = makeCharacter("Opened Ally", { controlledby: "p1" });
+  const never = makeCharacter("Never Opened", { controlledby: "p1", neverOpened: true });
+  const legacy = makeCharacter("Old Sheet NPC", { charactersheetname: "ogl5e" });
+  const future = makeCharacter("Odd Version", { controlledby: "p1", sheetVersion: "99" });
+  [opened, never, legacy, future].forEach(c => w.win.Campaign.characters.models.push(c));
+
+  const can = async ch => w.PT.sheets.canReceiveItems(ch);
+
+  const okRes = await can(opened);
+  check("a loaded sheet can receive items", okRes.ok, JSON.stringify(okRes));
+
+  const neverRes = await can(never);
+  check("a never-opened sheet cannot", !neverRes.ok, JSON.stringify(neverRes));
+  check("and it is reported as noStore, not as an unsupported sheet",
+    neverRes.reason === "noStore", neverRes.reason);
+
+  const legacyRes = await can(legacy);
+  check("a different sheet is reported as sheet", legacyRes.reason === "sheet", legacyRes.reason);
+
+  const futureRes = await can(future);
+  check("an unverified sheet version is reported as version",
+    futureRes.reason === "version", futureRes.reason);
+
+  // The DM-controlled NPC case the issue was actually about: on the supported
+  // sheet with a usable store, it CAN receive items — the survey's finding.
+  const npc = makeCharacter("Shopkeeper", { charactersheetname: "dnd2024byroll20" });
+  w.win.Campaign.characters.models.push(npc);
+  const npcRes = await can(npc);
+  check("a DM-controlled NPC on the 2024 sheet CAN receive items", npcRes.ok, JSON.stringify(npcRes));
+
+  // End to end: claiming to the never-opened sheet must explain itself and
+  // leave the bag untouched.
+  w.click(iconBtn(w, "Add an item by name"));
+  setInput(w, "[data-f=name]", "Lantern");
+  w.click(modalBtn(w, "Add"));
+  await wait(2000);
+
+  w.click(iconBtn(w, "Claim this item to one of your characters"));
+  const radios = w.all(".pt-modal input[name=pt-claim-char]");
+  const labels = w.all(".pt-modal .pt-split-recipients label").map(l => l.textContent);
+  const idx = labels.findIndex(t => /Never Opened/.test(t));
+  check("the never-opened character is offered in the list", idx >= 0, JSON.stringify(labels));
+  radios[idx].checked = true;
+  w.click(modalBtn(w, "Claim"));
+  await wait(3000);
+
+  const toast = toastText(w);
+  check("the failure tells the DM to open the sheet once",
+    /Open Never Opened’s character sheet in Roll20 once/.test(toast), toast);
+  check("it does not leak the developer-facing timeout text",
+    !/timed out waiting for character data/.test(toast), toast);
+  check("it says nothing was changed", /Nothing was changed/.test(toast), toast);
+  check("the item is still in the bag", /Lantern/.test(w.bodyText()), w.bodyText().slice(0, 200));
+}
+
 (async () => {
   await hiddenBagHeader();
   await addingSeveralItems();
   await depositTellsYouToReopen();
   await characterPickersScroll();
+  await ineligibleCharactersSayWhy();
   report("panel-ui");
 })();

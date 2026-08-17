@@ -564,6 +564,38 @@
     return " If " + charName + "’s character sheet is open, close and reopen it — Roll20 doesn’t redraw an open sheet.";
   }
 
+  // A sheet write refused for a reason the user can do something about.
+  // sheets.js hands back a `reason` code with every failure; the raw `err`
+  // behind it is written for a developer reading a console ("timed out
+  // waiting for character data to load (10s)") and tells a DM nothing about
+  // what to do next.
+  //
+  // The noStore case is the one that matters at the table, and it is not the
+  // NPC problem it looks like: the 2024 sheet builds its store the first time
+  // the sheet is OPENED, so ANY character nobody has opened yet — a player's
+  // own summon as readily as an NPC — refuses the write until someone opens
+  // it once. That is a ten-second wait followed by a shrug, and the remedy is
+  // one click, so it has to be said.
+  //
+  // Returns null when the reason has no better phrasing than the raw error.
+  // The text is deliberately verb-neutral: the same wall is hit claiming TO a
+  // sheet and taking FROM one, so callers append their own "nothing was
+  // changed" where that is the relevant reassurance.
+  function sheetProblemMessage(charName, res) {
+    switch (res && res.reason) {
+      case "noStore":
+        return "Roll20 hasn’t built " + charName + "’s sheet data yet. Open " + charName +
+          "’s character sheet in Roll20 once — that creates it — then try again.";
+      case "version":
+        return charName + "’s sheet is a version Party Tools hasn’t been verified against, so it refused to touch the " +
+          "character rather than risk corrupting it. Please report it with the 🐞 button.";
+      case "unreadable":
+        return charName + "’s sheet data could not be read. Try opening the sheet in Roll20, then try again.";
+      default:
+        return null;
+    }
+  }
+
   // ---- claim an item to a character sheet (INV-21/23a/23b/24) ---------------
   // Writes to the character sheet FIRST and only removes the claimed
   // quantity from the bag if that write reported ok:true. Never the other
@@ -602,8 +634,9 @@
         datarecords: item.datarecords,
         compendiumPageID: item.compendiumPageID
       }).then(function (sheetRes) {
-        // Sheet write failed: STOP. Nothing about the bag changes.
-        if (!sheetRes.ok) return { ok: false, err: sheetRes.err };
+        // Sheet write failed: STOP. Nothing about the bag changes. The
+        // reason code rides along so the caller can say something useful.
+        if (!sheetRes.ok) return { ok: false, reason: sheetRes.reason, err: sheetRes.err };
         // Sheet write succeeded: ONE mutateBag call removes the claimed
         // quantity (whole stack, or reduces qty).
         return removeFromBag().then(function (r) {
@@ -706,7 +739,14 @@
           ui.refresh();
           return;
         }
-        if (!r.ok) { ui.toast("Claim failed, nothing was changed: " + r.err); ui.refresh(); return; }
+        if (!r.ok) {
+          var explained = sheetProblemMessage(character.get("name"), r);
+          ui.toast(explained
+            ? explained + " Nothing was changed."
+            : "Claim failed, nothing was changed: " + r.err, explained ? 14000 : 3500);
+          ui.refresh();
+          return;
+        }
         if (unsupportedClaim) {
           ui.toast("“" + item.name + "” recorded as assigned to " + character.get("name") + " — move it onto the sheet by hand.");
         } else if (item.datarecords && !r.fromCompendium && !r.graph) {
@@ -750,7 +790,7 @@
   function depositItem(bag, character, sheetItem, qty) {
     var charName = character.get("name");
     return PT.sheets.takeItem(character, sheetItem.id, qty).then(function (res) {
-      if (!res.ok) return { ok: false, err: res.err };
+      if (!res.ok) return { ok: false, reason: res.reason, err: res.err };
       return PT.store.addItem(env, bag.id, bag.doc.name, res.item).then(function (r) {
         if (r.ok) {
           PT.store.appendLog(env, env.playerName + " put " + qty + "× “" + res.item.name + "” from " + charName + " into “" + bag.doc.name + "”");
@@ -805,7 +845,14 @@
             ui.refresh();
             return;
           }
-          if (!r.ok) { ui.toast("Nothing was changed: " + r.err); ui.refresh(); return; }
+          if (!r.ok) {
+            var explained = sheetProblemMessage(character.get("name"), r);
+            ui.toast(explained
+              ? explained + " Nothing was changed."
+              : "Nothing was changed: " + r.err, explained ? 14000 : 3500);
+            ui.refresh();
+            return;
+          }
           ui.toast("Moved " + qty + "× “" + item.name + "” into “" + bag.doc.name + "”." +
             sheetRefreshNote(character.get("name")), 9000);
           ui.refresh();
@@ -815,7 +862,11 @@
       PT.sheets.listItems(character).then(function (res) {
         listWrap.textContent = "";
         if (!res.ok) {
-          listWrap.appendChild(PT.el("div", { class: "pt-note", text: "Could not read that sheet: " + res.err }));
+          var explained = sheetProblemMessage(character.get("name"), res);
+          listWrap.appendChild(PT.el("div", {
+            class: "pt-note",
+            text: explained || ("Could not read that sheet: " + res.err)
+          }));
           return;
         }
         state.items = res.items;

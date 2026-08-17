@@ -4,7 +4,7 @@
 window.PartyTools = window.PartyTools || {};
 (function (PT) {
   "use strict";
-  PT.VERSION = "0.9.19";
+  PT.VERSION = "0.9.20";
   PT.KOFI_URL = "https://ko-fi.com/drsmith080";
   PT.ISSUES_URL = "https://github.com/drsmith18/roll20-inventory-quest-tracker/issues";
 

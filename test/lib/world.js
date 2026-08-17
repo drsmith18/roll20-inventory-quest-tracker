@@ -52,7 +52,10 @@ function makeCharacter(name, opts) {
     inventory: { _id: "inventory", type: "Inventory", childIDs: '["rope"]' },
     rope: { _id: "rope", type: "Item", name: "Rope", quantity: 1, parentID: "inventory", childIDs: "[]", weight: 10 }
   };
-  const attribs = [
+  // opts.neverOpened reproduces the state found on a real campaign: the 2024
+  // sheet creates `store` the first time the sheet is OPENED, so a character
+  // nobody has opened has the right charactersheetname and no store at all.
+  const attribs = opts.neverOpened ? [] : [
     makeAttrib("store", { integrants: { integrants: integrants } }),
     makeAttrib("sheetVersion", opts.sheetVersion || "22"),
     makeAttrib("updateId", "u0")
@@ -129,6 +132,10 @@ function createWorld(opts) {
   // instantly. storage.js exposes these hooks for exactly this.
   win.PartyTools.VERIFY_DELAY_MS = 5;
   win.PartyTools.CREATE_DELAY_MS = 5;
+  // Same reasoning for the sheet-load timeout: the never-opened case is
+  // established by waiting it out, and ten real seconds per character would
+  // dominate the suite.
+  win.PartyTools.ATTRIBS_TIMEOUT_MS = 200;
 
   return {
     win,
