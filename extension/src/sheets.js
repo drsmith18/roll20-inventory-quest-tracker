@@ -24,6 +24,10 @@
   var MIN_SHEET_VERSION = 20;
   var MAX_SHEET_VERSION = 29;
   var ATTRIBS_TIMEOUT_MS = 10000;
+  // Overridable for tests, the same way storage.js exposes its write delays —
+  // a "sheet never opened" case costs the FULL timeout to establish, and a
+  // test suite shouldn't wait out ten real seconds to prove it.
+  function attribsTimeout() { return PT.ATTRIBS_TIMEOUT_MS || ATTRIBS_TIMEOUT_MS; }
   var ATTRIBS_POLL_MS = 300;
   var WRITE_VERIFY_DELAY_MS = 1500;
 
@@ -136,8 +140,8 @@
       if (character.attribs.length > 0 && attrByName(character, "store")) {
         return Promise.resolve({ ok: true });
       }
-      if (Date.now() - t0 > ATTRIBS_TIMEOUT_MS) {
-        return Promise.resolve({ ok: false, err: "timed out waiting for character data to load (" + (ATTRIBS_TIMEOUT_MS / 1000) + "s)" });
+      if (Date.now() - t0 > attribsTimeout()) {
+        return Promise.resolve({ ok: false, err: "timed out waiting for character data to load (" + (attribsTimeout() / 1000) + "s)" });
       }
       return PT.delay(ATTRIBS_POLL_MS).then(poll);
     })();
@@ -160,16 +164,38 @@
   // Common prefix for every operation that only needs to READ the store:
   // sheet-support check, lazy load, parse. Unsupported sheets are refused
   // before any load is attempted.
+  //
+  // Every failure carries a `reason` code as well as its message. Sheet
+  // support is FOUR distinct states, not two, and they were previously
+  // indistinguishable to the caller — which is how "this character can't hold
+  // items" and "Roll20 hasn't built this character's data yet" both reached
+  // the user as the same shrug. Surveyed against a real 174-character
+  // campaign; see docs/future-ideas.md § "Which characters can receive items".
+  //
+  //   "sheet"    - a different sheet entirely (ogl5e). Refused by name, before
+  //                any load; this is the INV-24 assignment path.
+  //   "noStore"  - right sheet, but no store document. The 2024 sheet builds
+  //                its store the first time the sheet is OPENED, so a
+  //                character nobody has opened yet has nothing to write into.
+  //                Costs a full ATTRIBS_TIMEOUT_MS to discover.
+  //   "unreadable" - a store that exists but will not parse.
+  //   "version"  - a sheetVersion outside the range we have read and verified.
   function prepareRead(character) {
-    if (!character) return Promise.resolve({ ok: false, err: "no character given" });
+    if (!character) return Promise.resolve({ ok: false, reason: "none", err: "no character given" });
     if (!PT.sheets.isSupported(character)) {
-      return Promise.resolve({ ok: false, err: "unsupported character sheet (only " + SUPPORTED_SHEET + " is supported)" });
+      return Promise.resolve({
+        ok: false, reason: "sheet",
+        err: "unsupported character sheet (only " + SUPPORTED_SHEET + " is supported)"
+      });
     }
     return PT.sheets.load(character).then(function (res) {
-      if (!res.ok) return res;
+      if (!res.ok) return { ok: false, reason: "noStore", err: res.err };
       var storeAttr = attrByName(character, "store");
       var doc = readStoreDoc(storeAttr);
-      if (!doc) return { ok: false, err: "character store could not be read or parsed" };
+      if (!doc) return { ok: false, reason: "unreadable", err: "character store could not be read or parsed" };
+      if (!(doc.integrants && doc.integrants.integrants)) {
+        return { ok: false, reason: "unreadable", err: "character store has no integrants map" };
+      }
       return { ok: true, storeAttr: storeAttr, doc: doc };
     });
   }
@@ -179,10 +205,28 @@
     return prepareRead(character).then(function (p) {
       if (!p.ok) return p;
       var v = checkSheetVersion(character);
-      if (!v.ok) return v;
+      if (!v.ok) return { ok: false, reason: "version", err: v.err };
       return p;
     });
   }
+
+  // Can this character actually RECEIVE an item? isSupported answers a
+  // narrower question — does it carry the right sheet NAME — and the two come
+  // apart in practice. A survey of a real campaign found DM-controlled NPCs
+  // on the 2024 sheet holding items perfectly well (a shop character with 22
+  // of them), while a PLAYER's character whose sheet had never been opened
+  // could not receive anything at all. "NPC" turns out not to be the axis;
+  // having a usable store is.
+  //
+  // Async, and potentially slow (a character with no store costs the full
+  // load timeout to establish), so it is NOT suitable for rendering a list.
+  // It exists for callers that already know which single character they mean.
+  PT.sheets.canReceiveItems = function (character) {
+    return prepareWrite(character).then(function (p) {
+      if (!p.ok) return { ok: false, reason: p.reason || "none", err: p.err };
+      return { ok: true };
+    });
+  };
 
   // Saves the modified store, bumps updateId, waits, re-reads, and calls
   // verify(doc) on the fresh read to confirm the change actually stuck.
@@ -219,7 +263,7 @@
   // ---- coins ------------------------------------------------------------------
   PT.sheets.readCoins = function (character) {
     return prepareRead(character).then(function (p) {
-      if (!p.ok) return { ok: false, err: p.err };
+      if (!p.ok) return { ok: false, reason: p.reason, err: p.err };
       return { ok: true, purse: purseFromDoc(p.doc) };
     });
   };
@@ -230,7 +274,7 @@
   // all (we won't invent one — its conversion-chain shape is unknown to us).
   PT.sheets.addCoins = function (character, deltas) {
     return prepareWrite(character).then(function (p) {
-      if (!p.ok) return { ok: false, err: p.err };
+      if (!p.ok) return { ok: false, reason: p.reason, err: p.err };
       var next = JSON.parse(JSON.stringify(p.doc));
       var ints = next.integrants && next.integrants.integrants;
       if (!ints) return { ok: false, err: "store has no integrants; cannot write coins" };
@@ -1453,7 +1497,7 @@
   // "Torch" alone is ambiguous when three packs each hold one.
   PT.sheets.listItems = function (character) {
     return prepareRead(character).then(function (p) {
-      if (!p.ok) return { ok: false, err: p.err };
+      if (!p.ok) return { ok: false, reason: p.reason, err: p.err };
       var ints = (p.doc.integrants && p.doc.integrants.integrants) || {};
       var items = Object.keys(ints).filter(function (k) {
         return ints[k] && ints[k].type === "Item" && (ints[k].name || "").trim();
@@ -1507,7 +1551,7 @@
   // duplicating the item into the party's inventory.
   PT.sheets.takeItem = function (character, itemId, qty) {
     return prepareWrite(character).then(function (p) {
-      if (!p.ok) return { ok: false, err: p.err };
+      if (!p.ok) return { ok: false, reason: p.reason, err: p.err };
       var next = JSON.parse(JSON.stringify(p.doc));
       var ints = next.integrants && next.integrants.integrants;
       if (!ints) return { ok: false, err: "store has no integrants; cannot read items" };
@@ -1561,7 +1605,7 @@
   // under an existing top-level item's parent.
   PT.sheets.addItem = function (character, item) {
     return prepareWrite(character).then(function (p) {
-      if (!p.ok) return { ok: false, err: p.err };
+      if (!p.ok) return { ok: false, reason: p.reason, err: p.err };
       var next = JSON.parse(JSON.stringify(p.doc));
       var ints = next.integrants && next.integrants.integrants;
       if (!ints) return { ok: false, err: "store has no integrants; cannot write item" };

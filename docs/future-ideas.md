@@ -30,9 +30,17 @@ is a bag with prices and an owner.
    it's a different structure, it's a new writer module and a much bigger
    job.
 
-   **Settles it:** open a shop sheet in a test game and run
-   `Campaign.characters.models.map(c => c.get("charactersheetname"))`.
-   Record the answer here.
+   **ANSWERED (Aug 2026), from the survey below: yes.** A real shop
+   character — "General Goode's General Goods", DM-controlled, no player in
+   `controlledby` — reports `charactersheetname: "dnd2024byroll20"`,
+   `sheetVersion: 22`, loads in ~300 ms, and carries **22 `Item` records**
+   that `sheets.listItems` reads back in full, prices included (an
+   Arrow-Catching Shield at 4010, Cartographer's Tools at "15 GP").
+
+   So a shop sheet is an ordinary Beacon sheet and the existing item
+   read/write code applies to it as-is. No gate widening, no second writer
+   module, no new record shapes. The expensive half of shops was never the
+   sheet — it is the transaction semantics in point 2.
 
 2. **Buying is a transaction, not a transfer.** A purchase is four writes —
    debit the buyer's coins, credit the shop's, remove the item from the
@@ -525,6 +533,58 @@ book. Nothing to fix in the writer — but worth knowing that such items can
 only ever arrive as a name, whatever rules get written.
 
 ---
+
+## Which characters can receive items — surveyed
+
+**Surveyed Aug 2026** on a real campaign of 174 characters, because
+`sheets.isSupported` was being read as "can this character hold items" when
+it only ever answered "does it carry the right sheet name". The two come
+apart, and not along the axis the bug report assumed.
+
+The campaign:
+
+| Population | Count |
+|---|---|
+| `ogl5e`, DM-only | 157 |
+| `dnd2024byroll20`, player-controlled | 6 |
+| `dnd2024byroll20`, DM-only | 11 |
+
+**The headline: NPC-ness is not the axis.** All 11 DM-controlled characters
+on the 2024 sheet loaded in ~300 ms with a working
+`store.integrants.integrants` layout, and one of them holds 22 items. A
+DM-controlled NPC on the supported sheet receives items exactly as a player
+character does. The reported "NPC sheets can not hold onto items" is the 157
+`ogl5e` characters, which the name check already refuses loudly and routes to
+INV-24's assignment path — working as designed, and a 2014-sheet question
+rather than an eligibility one.
+
+**What actually varies, and what it costs to find out:**
+
+| State | `isSupported` | Reality | Cost to discover |
+|---|---|---|---|
+| Different sheet (`ogl5e`) | false | Refused by name; assignment path | free |
+| Right sheet, store present | true | **Works**, items or not | one load (~300 ms) |
+| Right sheet, **never opened** | true | Nothing to write into | the FULL 10 s load timeout |
+| Right sheet, `sheetVersion` out of range | true | Refused at the version gate | one load |
+
+Two of those bite:
+
+- **Never opened.** The 2024 sheet builds its `store` the first time the
+  sheet is OPENED, so a character nobody has opened has the right sheet name
+  and no store at all. Found on `Conjure Animals` — a *player-controlled*
+  character, which is what proves this isn't about NPCs. The remedy is one
+  click (open the sheet once), so it has to be said out loud.
+- **`sheetVersion: 0`.** Found on `Valenar Steed`. Outside the verified
+  20–29 range, so the write is refused — correctly, but the character looked
+  eligible right up until it wasn't.
+
+Both are established only by attempting the load, which is why
+`sheets.canReceiveItems` is async and deliberately NOT used to render a list:
+probing 17 characters to paint a modal would cost up to ten seconds each on
+exactly the characters that are broken. The eligibility that CAN be known for
+free — the sheet name — is still what the claim modal marks up front; the
+rest is reported at the point of use, by `reason` code, with the remedy
+named.
 
 ## Smaller things raised at the table
 
