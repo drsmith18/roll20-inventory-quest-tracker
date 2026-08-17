@@ -24,34 +24,16 @@ Read these before changing anything that touches Roll20:
 The house style is S2's: **fail loudly, never guess.** A half-completed write
 is reported to the user, not swallowed — see `doClaimItem`'s `halfDone`.
 
-## Jules integration (optional, off unless a key is set)
+## Delegating to another agent
 
-[Jules](https://jules.google) is Google's async coding agent. It runs tasks in
-its own cloud VM against this GitHub repo — it does not run in your container.
+Much of this backlog cannot be delegated to any coding agent: the open spikes
+are console probes that must be run by a human at a live Roll20 table
+(`PT.sheets.payloadDump`, `weaponDump`, `survey`, `probeEnrich`). Nothing can
+settle those from a container.
 
-`.mcp.json` defines a project-scoped `jules` MCP server. It activates only when
-`JULES_API_KEY` is present in the environment; without it the server is
-configured but non-functional, which is the intended default.
-
-Check whether it's live before relying on it:
-
-```bash
-claude mcp list        # "jules" connected, or pending approval / missing var
-```
-
-Tools when connected: `create_session`, `list_sessions`, `get_session_state`,
-`send_reply`, `get_code_review_context`, `show_code_diff`, `query_cache`.
-
-**What Jules is and isn't good for here.** Delegating a self-contained,
-well-scoped change is reasonable. Delegating anything that needs Roll20's real
-behaviour is not: much of this backlog is console probes that must be run by a
-human at a live Roll20 table (`PT.sheets.payloadDump`, `weaponDump`, `survey`,
-`probeEnrich`). Neither agent can settle those.
-
-Also note the API is `v1alpha` and the MCP server is early. If a Jules session
-opens a PR, review its claims against the code rather than its description —
-that has already gone wrong once on this repo (PR #2 shipped with a security
-claim that was wrong and had to be retracted).
+If an agent does open a PR here, review its claims against the code rather
+than its description — that has already gone wrong once (PR #2 shipped with a
+security claim that was wrong and had to be retracted).
 
 ## Repo conventions
 
