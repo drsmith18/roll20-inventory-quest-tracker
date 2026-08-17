@@ -58,4 +58,6 @@ claim that was wrong and had to be retracted).
 - Plain ES5-flavoured JavaScript, no build step, no framework. Match the
   surrounding file.
 - Version bumps land in the commit subject: `v0.9.17: <what changed>`.
-- No test suite. `node --check` is the syntax gate.
+- `npm test` runs `test/sheets.test.js` and `test/storage-init.test.js`
+  (jsdom, the only devDependency). Run it before pushing. `node --check` is
+  the quick syntax gate for a file you've just edited.
