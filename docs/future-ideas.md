@@ -8,9 +8,16 @@ Format: what was asked for, what it would actually take, and **what would
 settle the open question**, so the next person picks up an investigation
 rather than a vague wish.
 
+Open items here are also tracked as GitHub issues, noted per section. This
+file stays the evidence record — the dumps, the closed routes, the reasons —
+and the issue is the thing you move across the board.
+
 ---
 
 ## Shop character sheets — buying and selling
+
+*Tracked as #4 (the sheet-name spike), #8 (shop bags) and #9 (transaction
+semantics).*
 
 **Asked for (Aug 2026, player feedback):** the DM tees up "shop" characters,
 and players buy items from them — onto their own sheet, or straight into the
@@ -162,6 +169,8 @@ character's **class**, not from the item, so it is not ours to write.)
 ---
 
 ## Let the SHEET build the item, instead of writing records ourselves
+
+*ROUTE 1 is closed below. ROUTE 2 is still unrun — tracked as #5.*
 
 **Asked at the table, Aug 2026:** "why not just add it by compendium ID and
 let the sheet do the work?"
@@ -323,6 +332,9 @@ obscured items along with `pagename`, since a page id names an item exactly.)
 ---
 
 ## Item types other than weapons — armour, magic items, containers
+
+*Containers are the last unbuilt shape — tracked as #7. The unverified
+`Defense` record is #6.*
 
 **Surveyed, Aug 2026.** `PT.sheets.survey()` over a real bag settled this
 properly. Ten items, eight distinct payload shapes:
@@ -528,12 +540,13 @@ only ever arrive as a name, whatever rules get written.
 
 ## Smaller things raised at the table
 
-- **Sub-bags.** Already in the PRD, still unbuilt. Containers on a sheet
-  (an Explorer's Pack holding a torch) are Items with Item parents, so the
-  sheet side of this already works — `sheets.listItems` reports the
+- **Sub-bags** (#10)**.** Already in the PRD, still unbuilt. Containers on a
+  sheet (an Explorer's Pack holding a torch) are Items with Item parents, so
+  the sheet side of this already works — `sheets.listItems` reports the
   container an item sits in. The bag side is the missing half.
-- **Quest tracker.** The other half of the product's name, still unstarted.
-- **2014 sheet support.** Deliberately deferred by scope decision; any
+- **Quest tracker** (#12, split into #13–#16)**.** The other half of the
+  product's name, still unstarted.
+- **2014 sheet support** (#11)**.** Deliberately deferred by scope decision; any
   non-2024 sheet gets INV-24's assignment state instead of a real write.
   The compendium payload format is uniform across rulesets (S3), so the
   blocker is the sheet writer, not the item data.
