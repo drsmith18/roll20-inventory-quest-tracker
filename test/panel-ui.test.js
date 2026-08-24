@@ -3,7 +3,7 @@
 // several items without reopening the box, what a player is told after an item
 // moves off a character sheet, the character pickers a DM has to scroll, and
 // which characters can actually receive an item.
-const { createWorld, makeCharacter, integrantsOf, wait } = require("./lib/world");
+const { createWorld, makeCharacter, integrantsOf, dismissWelcome, wait } = require("./lib/world");
 const { section, check, report } = require("./lib/assert");
 
 function bagHead(w) { return w.$(".pt-baghead"); }
@@ -28,6 +28,7 @@ async function readyDM(opts) {
   const w = createWorld(Object.assign({ isGM: true }, opts));
   await wait(8000);
   w.click(w.$("#pt-launcher"));
+  dismissWelcome(w); // a fresh world is always a first run (#47)
   return w;
 }
 

@@ -186,6 +186,19 @@ function createWorld(opts) {
   };
 }
 
+// A DM's first run in a game now opens a one-time welcome dialog when they
+// first open the panel (#47). Every fresh DM world in these suites is a first
+// run, so tests that drive the panel need to get past it the same way a real
+// DM does. Returns true if a welcome was actually dismissed.
+function dismissWelcome(w) {
+  const box = w.win.document.querySelector(".pt-modal");
+  if (!box || !/Party Tools is set up/.test(box.textContent || "")) return false;
+  const ok = Array.from(box.querySelectorAll(".pt-btn")).find(b => b.textContent === "Got it");
+  if (!ok) return false;
+  ok.dispatchEvent(new w.win.MouseEvent("click", { bubbles: true }));
+  return true;
+}
+
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-module.exports = { createWorld, makeCharacter, integrantsOf, wait, SRC };
+module.exports = { createWorld, makeCharacter, integrantsOf, dismissWelcome, wait, SRC };

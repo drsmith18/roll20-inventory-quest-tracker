@@ -1490,6 +1490,29 @@
     input.click();
   }
 
+  // Shown once, on the DM's first run in a game. Everything in here is
+  // currently learned only by reading the README, and the most damaging of it
+  // — that the PT- handouts ARE the inventory — is learned fastest by
+  // deleting them.
+  // Queued rather than shown immediately. Storage is created during boot,
+  // before the DM has opened anything, so firing this on first run would drop
+  // a dialog over their game unbidden while they were doing something else.
+  // It waits for them to open the panel, which is when they're looking.
+  var welcomePending = false;
+  ui.welcome = function () { welcomePending = true; };
+
+  function showWelcomeIfPending() {
+    if (!welcomePending) return;
+    welcomePending = false;
+    modal("Party Tools is set up", function (c) {
+      c.appendChild(PT.el("p", { text: "A bag called “Party Loot” is ready. Drag an item from the Roll20 compendium straight onto it, or use + to add something of your own." }));
+      c.appendChild(PT.el("p", { text: "Two things worth knowing:" }));
+      c.appendChild(PT.el("p", { class: "pt-warn", text: "1. Your party's data lives in this game's journal, in handouts named PT-… Those handouts ARE the inventory. Don't edit or delete them by hand — your client files them into a folder called “Party Tools (do not edit)” to keep them out of the way." }));
+      c.appendChild(PT.el("p", { text: "2. Players can see and fill bags, but only you can create them, hide them, or disguise an item's true stats." }));
+      c.appendChild(PT.el("p", { class: "pt-note", text: "Once you have loot worth keeping, the ♥ tab can export the lot to a file. Worth doing before anything risky." }));
+    }, function () { return true; }, { okText: "Got it", cancelText: "Close" });
+  }
+
   function renderAbout(body) {
     var about = PT.el("div", { class: "pt-about" });
     about.appendChild(PT.el("p", { text: "Party Tools v" + PT.VERSION + " — shared party inventory for Roll20. All data lives inside this game as journal handouts named PT-…; deleting those deletes the party's data." }));
@@ -1721,8 +1744,15 @@
     var msg = PT.el("div", {
       class: "pt-empty",
       text: env.isGM
-        ? "Party Tools could not set this game up. Check the browser console, then try again."
-        : "This game doesn't have Party Tools data yet. The DM opens the panel once to set it up — players never initialise a game. Watching for it…"
+        ? "Party Tools could not set this game up. Use “Copy diagnostics” in the ♥ tab if you report this, then try again."
+        // The one genuinely surprising rule in the product. At the author's
+        // table someone says it out loud; a group who installed from a store
+        // listing gets five players opening an empty panel at once and
+        // concluding the thing is broken. So it explains itself, and — the
+        // part that stops people reloading in a panic — says it will sort
+        // itself out.
+        : "Your DM needs to open Party Tools once in this game to set it up. Players never initialise a game themselves.\n\n" +
+          "You don't need to do anything, or reload the page — this panel will fill in on its own the moment they do."
     });
     var btn = PT.el("button", {
       class: "pt-btn", text: "Check again",
@@ -1742,9 +1772,9 @@
       ui.refresh().then(renderBody);
       // res.firstRun only ever comes back on the DM's own retry, where this
       // click is what created the storage.
-      PT.ui.toast(res.firstRun
-        ? "Party Tools is set up — a “Party Loot” bag has been created. Drag compendium items onto it!"
-        : env.isGM ? "Party Tools is ready."
+      if (res.firstRun) ui.welcome();
+      else PT.ui.toast(env.isGM
+        ? "Party Tools is ready."
         : "Party Tools is ready — the DM has set this game up.");
     }
 
@@ -1888,6 +1918,7 @@
       // Roll20 page behind it.
       var firstTab = panel.querySelector(".pt-tab.pt-active") || panel.querySelector(".pt-tab");
       if (firstTab) { try { firstTab.focus(); } catch (e) {} }
+      showWelcomeIfPending();
       if (!pollTimer) pollTimer = setInterval(function () { ui.refresh(); }, 4000);
     } else if (pollTimer) {
       clearInterval(pollTimer); pollTimer = null;

@@ -26,6 +26,14 @@ then, Party Tools runs at v0.9 in beta testing at the author's table.
 - Continuous integration on every push, and a tagged-release build producing
   the Chrome and Firefox zips.
 
+- **The DM's first run explains itself.** Opening the panel for the first time
+  in a game now says where the party's data lives, that the `PT-…` handouts
+  ARE the inventory and must not be deleted by hand, and that the ♥ tab can
+  export it. All of that was previously only in the README, and the most
+  damaging of it was learned fastest by deleting something.
+- A player who opens the panel before their DM has set the game up is now told
+  they don't need to do anything or reload — the panel fills in on its own.
+
 - **The panel can be used from the keyboard.** Modals are announced as
   dialogs, close on Escape, keep Tab inside themselves, and hand focus back to
   wherever it was when they close. The tab strip is a real tablist with arrow

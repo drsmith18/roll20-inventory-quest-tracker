@@ -72,7 +72,9 @@
         return;
       }
       PT.ui.mount(info, res.state);
-      if (res.firstRun) PT.ui.toast("Party Tools is set up — a “Party Loot” bag has been created. Drag compendium items onto it!");
+      // A first run is the one moment a DM will read something, and the
+      // things they need to know are the ones a toast cannot carry.
+      if (res.firstRun) PT.ui.welcome();
       if (res.state === "readOnly" && !health.canWrite) {
         PT.ui.toast("Party Tools: Roll20 has changed something Party Tools writes with, so it is read-only. Your data is safe — please check for an update.");
       } else if (res.state === "readOnly") PT.ui.toast("Party Tools: this game's data comes from a newer version — read-only until you update.");

@@ -4,7 +4,7 @@
 // Scenario 1 is the bug the DM's table actually hit: a player who opens the
 // game before the DM has set it up. Scenario 2 is the DM's own first run,
 // here to catch regressions in the path that creates storage.
-const { createWorld, wait } = require("./lib/world");
+const { createWorld, dismissWelcome, wait } = require("./lib/world");
 const { section, check, report } = require("./lib/assert");
 
 // The DM's client creating storage, reproduced so a test can do it from
@@ -40,7 +40,9 @@ async function playerWaitsForTheDM() {
 
   check("the panel mounts in the noStorage state", w.PT.ui.state === "noStorage", w.PT.ui.state);
   check("the player is told the DM has to set it up",
-    /doesn't have Party Tools data yet/.test(w.bodyText()));
+    /DM needs to open Party Tools once/.test(w.bodyText()), w.bodyText().slice(0, 160));
+  check("and told they don't need to do anything or reload",
+    /don't need to do anything, or reload/.test(w.bodyText()), w.bodyText().slice(0, 240));
   check("a manual re-check button is offered",
     !!w.all(".pt-btn").find(b => /Check again/.test(b.textContent)));
   check("the player client created nothing",
@@ -50,7 +52,7 @@ async function playerWaitsForTheDM() {
   // renderInventory on a null snapshot, leaving a blank panel.
   w.click(w.$("#pt-launcher"));
   check("opening the panel keeps the explanation on screen",
-    /doesn't have Party Tools data yet/.test(w.bodyText()), JSON.stringify(w.bodyText()));
+    /DM needs to open Party Tools once/.test(w.bodyText()), JSON.stringify(w.bodyText()));
   check("opening the panel keeps the re-check button",
     !!w.all(".pt-btn").find(b => /Check again/.test(b.textContent)));
 
@@ -61,7 +63,7 @@ async function playerWaitsForTheDM() {
   check("the heart tab renders with no storage", w.bodyText().length > 0);
   w.click(tab("inventory"));
   check("returning to Inventory still shows the explanation",
-    /doesn't have Party Tools data yet/.test(w.bodyText()), JSON.stringify(w.bodyText()));
+    /DM needs to open Party Tools once/.test(w.bodyText()), JSON.stringify(w.bodyText()));
 
   w.click(w.all(".pt-btn").find(b => /Check again/.test(b.textContent)));
   await wait(5000);
@@ -77,7 +79,7 @@ async function playerWaitsForTheDM() {
     w.PT.ui.state === "ready", w.PT.ui.state);
   check("the default bag is on screen", /Party Loot/.test(w.bodyText()), w.bodyText().slice(0, 200));
   check("the stale 'no data yet' message is gone",
-    !/doesn't have Party Tools data yet/.test(w.bodyText()));
+    !/DM needs to open Party Tools once/.test(w.bodyText()));
   check("no duplicate storage set was created",
     w.handouts.models.length === 5, w.handouts.models.length + " handout(s)");
 }
@@ -91,6 +93,23 @@ async function dmFirstRun() {
   check("it created exactly five handouts",
     w.handouts.models.length === 5, w.handouts.models.length + " handout(s)");
   w.click(w.$("#pt-launcher"));
+
+  // #47 — the DM's first run is the one moment they will read anything, and
+  // the two things they most need to know (their data lives in PT- handouts;
+  // don't delete them) were previously only in the README. Deliberately shown
+  // on first PANEL OPEN rather than during boot: storage is created before the
+  // DM has opened anything, so firing it earlier drops a dialog over their
+  // game while they're doing something else.
+  const welcome = w.$(".pt-modal");
+  check("the DM's first run explains itself", !!welcome && /Party Tools is set up/.test(welcome.textContent),
+    welcome ? welcome.textContent.slice(0, 60) : "no dialog shown");
+  check("it warns against deleting the PT- handouts",
+    !!welcome && /Don't edit or delete them|ARE the inventory/.test(welcome.textContent),
+    welcome ? welcome.textContent.slice(0, 200) : "no dialog");
+  check("it points at export before anything risky",
+    !!welcome && /export/i.test(welcome.textContent));
+  check("dismissing it works", dismissWelcome(w) && !w.$(".pt-modal"), "still on screen");
+
   check("the default Party Loot bag renders", /Party Loot/.test(w.bodyText()), w.bodyText().slice(0, 200));
   check("the DM sees the New bag control", /New bag/.test(w.bodyText()));
   check("the DM sees the deposit-from-sheet control",

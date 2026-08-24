@@ -8,13 +8,14 @@
 //
 // Escape-to-close is the check worth caring about most: everybody uses it,
 // not just assistive-technology users.
-const { createWorld, wait } = require("./lib/world");
+const { createWorld, dismissWelcome, wait } = require("./lib/world");
 const { section, check, report } = require("./lib/assert");
 
 async function readyDM() {
   const w = createWorld({ isGM: true });
   await wait(8000);
   w.click(w.$("#pt-launcher"));
+  dismissWelcome(w); // a fresh world is always a first run
   return w;
 }
 
@@ -48,6 +49,10 @@ async function launcher() {
   w.click(el);
   check("and as open once opened", el.getAttribute("aria-expanded") === "true",
     el.getAttribute("aria-expanded"));
+  // A fresh world is a first run, so the welcome dialog opens over the panel
+  // and legitimately takes focus. Dismiss it the way a DM would; focus should
+  // come back to where the panel put it.
+  dismissWelcome(w);
   check("opening moves focus into the panel",
     w.win.document.activeElement && w.win.document.activeElement.closest("#pt-panel") !== null,
     w.win.document.activeElement && w.win.document.activeElement.className);
