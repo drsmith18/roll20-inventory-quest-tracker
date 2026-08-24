@@ -44,22 +44,28 @@
     }
 
     // A missing write path is the dangerous one: the panel would otherwise
-    // look completely normal while every change went nowhere. Two cases.
-    if (!health.canWrite) {
-      // Nothing to read either: creating storage is the only way forward and
-      // that is exactly what we can't do. Don't half-create a storage set and
-      // leave debris in someone's journal.
-      if (!PT.store.storageExists()) {
+    // look completely normal while every change went nowhere. Mark the storage
+    // layer read-only up front so init() can find and load existing data but
+    // can never create any.
+    //
+    // Deliberately NOT branching on storageExists() here: that reads the
+    // already-downloaded journal collection, and at this point in boot the
+    // journal may not have arrived yet — init()'s own waitForJournal() is what
+    // settles it. Asking too early would report "no storage" for a game that
+    // has plenty, and send the DM a notice saying nothing was created when in
+    // fact there was something to show. init() tells us which case it is.
+    if (!health.canWrite) PT.store.state.readOnly = true;
+
+    PT.store.init(info).then(function (res) {
+      if (!health.canWrite && res.state === "ready") res.state = "readOnly";
+
+      // Now the journal has settled, so this answer is trustworthy: writing is
+      // broken AND there is nothing to show, so there is nothing to mount.
+      if (!health.canWrite && !PT.store.storageExists()) {
         notice("Roll20 has changed something Party Tools writes with, so it can't set this game up. " +
           "Nothing has been added to your journal. Please check for an update. (click to dismiss)");
         return;
       }
-      // There IS storage. Load it and show it, but never let anyone act on it.
-      PT.store.state.readOnly = true;
-    }
-
-    PT.store.init(info).then(function (res) {
-      if (!health.canWrite && res.state === "ready") res.state = "readOnly";
 
       if (res.state === "initFailed") {
         PT.log("storage initialisation failed:", res.err);

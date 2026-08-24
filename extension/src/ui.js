@@ -103,7 +103,7 @@
     ".pt-itemname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default}",
     ".pt-itemmeta{color:var(--pt-dim);font-size:11.5px;margin-left:6px}",
     ".pt-qty{color:var(--pt-dim);min-width:32px;text-align:right}",
-    ".pt-empty{color:var(--pt-dim);font-style:italic;padding:6px 0}",
+    ".pt-empty{color:var(--pt-dim);font-style:italic;padding:6px 0;white-space:pre-line}",
     ".pt-row{display:flex;gap:8px;margin:8px 0}",
     ".pt-btn{background:var(--pt-bg3);color:var(--pt-text);border:1px solid var(--pt-edge2);border-radius:4px;padding:6px 12px;cursor:pointer;font-size:12.5px}",
     ".pt-btn:hover{background:#383b43}",
@@ -198,8 +198,10 @@
     var url = PT.ISSUES_URL + "/new?title=" + encodeURIComponent("[bug] ") + "&body=" + encodeURIComponent(body.join("\n"));
     // Well under the ~8k where browsers and servers start dropping things.
     if (url.length > 6000) {
+      // Everything up to the activity tail — the diagnostics are the point.
+      var head = body.slice(0, body.indexOf("_Recent activity:_") === -1 ? body.length : body.indexOf("_Recent activity:_"));
       url = PT.ISSUES_URL + "/new?title=" + encodeURIComponent("[bug] ") +
-        "&body=" + encodeURIComponent(body.slice(0, 9).join("\n") +
+        "&body=" + encodeURIComponent(head.join("\n") +
           "\n\n_(activity log omitted — it was too long for a link. Use “Copy diagnostics” in the ♥ tab and paste it here.)_");
     }
     return url;
@@ -278,6 +280,9 @@
     ]);
     box.appendChild(content); box.appendChild(row); back.appendChild(box);
     back.addEventListener("mousedown", function (e) { if (e.target === back) close(true); });
+    // So a nested control can dismiss this dialog properly rather than
+    // ripping the backdrop out from under the listener.
+    back.__ptClose = close;
 
     // Capture phase, and only while this modal is the topmost one: Roll20 has
     // its own Escape handling, and a modal that let Escape through would close
@@ -337,8 +342,12 @@
           class: "pt-btn", text: "Split coins…", title: "Divide these coins between characters",
           disabled: PT.purseToCopper(bag.doc.purse) > 0 ? undefined : "disabled",
           onclick: function (e) {
+            // Not back.remove(): that leaves modal()'s document-level keydown
+            // listener attached and skips returning focus. Every open/split
+            // cycle used to leak one.
             var back = e.target.closest(".pt-modal-back");
-            if (back) back.remove();
+            if (back && back.__ptClose) back.__ptClose(false);
+            else if (back) back.remove();
             splitModal(bag);
           }
         })
@@ -1772,8 +1781,14 @@
       ui.refresh().then(renderBody);
       // res.firstRun only ever comes back on the DM's own retry, where this
       // click is what created the storage.
-      if (res.firstRun) ui.welcome();
-      else PT.ui.toast(env.isGM
+      // The panel is already open on this path, so the queued welcome would
+      // never be drained by togglePanel — show it now, and still say
+      // something either way.
+      if (res.firstRun) {
+        ui.welcome();
+        showWelcomeIfPending();
+        PT.ui.toast("Party Tools is set up — a “Party Loot” bag has been created.");
+      } else PT.ui.toast(env.isGM
         ? "Party Tools is ready."
         : "Party Tools is ready — the DM has set this game up.");
     }

@@ -42,6 +42,12 @@ then, Party Tools runs at v0.9 in beta testing at the author's table.
   their tooltip as an accessible name, and there is now a visible focus ring.
 
 ### Fixed
+- A bug report could carry the names of bags and items — including a DM's
+  hidden bag — into a public issue. Names are now replaced with `<name>`
+  before any diagnostic leaves the panel.
+- An obscured item imported from an export came back as its disguise with the
+  true stats gone for good. Item ids are reminted on import, and the DM-only
+  map that holds the truth is now re-keyed to match.
 - **Concurrent writes could silently double a quantity, a purse deposit or a
   stacked item.** The check that confirmed a write had landed compared the
   handout body to exactly what it had written, which cannot tell "my write was

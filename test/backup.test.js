@@ -99,6 +99,45 @@ async function roundTrip() {
     after.bags.some(b => b.name === "Party Loot"), after.bags.map(b => b.name).join(", "));
 }
 
+// An obscured item is a disguise: players see a written description, and the
+// true stats live in DM-only storage keyed by item id. Import remints item
+// ids, so unless the obscured map is re-keyed on the way in, the item comes
+// back as its fake surface record with the truth gone — a disguised item the
+// DM can never reveal, which is worse than not importing it at all.
+async function obscuredSurvivesTheRoundTrip() {
+  section("an obscured item keeps its hidden true stats through a round trip:");
+  const source = await dmWorldWithData();
+  const env = source.PT.envInfo;
+  const bag = bagId(source);
+
+  const doc0 = await source.PT.store.readDoc(source.PT.store.state.bagHs[bag]);
+  const rope = doc0.items.filter(i => i.name === "Rope")[0];
+  await source.PT.store.obscureItem(env, bag, "Party Loot", rope.id, "A coil of something", true);
+
+  const exported = await source.PT.backup.build(env);
+  check("the DM's export carries the obscured truth",
+    !!exported.obscured && Object.keys(exported.obscured).length > 0,
+    JSON.stringify(exported.obscured));
+
+  const target = createWorld({ isGM: true });
+  await wait(8000);
+  const res = await target.PT.backup.restore(target.PT.envInfo, exported);
+  check("the restore reports it re-keyed the obscured entry", res.obscured >= 1,
+    JSON.stringify({ obscured: res.obscured, failures: res.failures }));
+
+  // The real proof: the GM index holds truth under an id that an item in the
+  // newly-created bag actually has.
+  const gmDoc = await target.PT.store.readDoc(target.PT.store.state.gmIndexH);
+  const ids = Object.keys((gmDoc && gmDoc.obscured) || {});
+  check("the GM index has an obscured entry after import", ids.length > 0, JSON.stringify(ids));
+
+  const snap = await target.PT.store.snapshot(target.PT.envInfo);
+  const allItemIds = snap.bags.reduce((acc, b) => acc.concat((b.doc.items || []).map(i => i.id)), []);
+  check("and it is keyed to an item that exists in the imported bag",
+    ids.some(id => allItemIds.indexOf(id) !== -1),
+    "obscured ids " + JSON.stringify(ids) + " vs item ids " + JSON.stringify(allItemIds));
+}
+
 // Storage as the DM's client would have created it, seen from a PLAYER's
 // client. The distinction that matters: Roll20 withholds GM-only handout
 // bodies server-side, so a player asking for one gets nothing back. The stub
@@ -186,6 +225,7 @@ async function badFiles() {
 (async () => {
   await exportShape();
   await roundTrip();
+  await obscuredSurvivesTheRoundTrip();
   await playerExportIsSafe();
   await badFiles();
   report("backup");

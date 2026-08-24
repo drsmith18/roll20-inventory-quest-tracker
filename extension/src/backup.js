@@ -156,7 +156,13 @@
       return Promise.resolve({ ok: false, err: "Only the DM can import — Roll20 does not let players create the journal handouts bags are stored in." });
     }
     var bags = doc.bags || [];
-    var made = 0, itemsMade = 0, failures = [];
+    var made = 0, itemsMade = 0, obscuredMade = 0, failures = [];
+    // Item ids are reminted on import, so the exported obscured map — which is
+    // keyed by the OLD id — has to be re-keyed as we go. Without this an
+    // obscured item comes back as its fake surface record with the true stats
+    // gone for good, which is worse than not importing it at all: the DM would
+    // have a disguised item and no way to reveal it.
+    var obscured = (env.isGM && doc.obscured) || {};
 
     return bags.reduce(function (chain, b) {
       return chain.then(function () {
@@ -171,10 +177,24 @@
               Object.keys(item).forEach(function (k) { copy[k] = item[k]; });
               // Let storage mint a fresh id; reusing the old one risks
               // colliding with an item already in this campaign.
+              var oldId = copy.id;
               delete copy.id;
+              // addItem mints the id onto the object we hand it, so this is
+              // how we learn the new one.
               return PT.store.addItem(env, res.id, name, copy).then(function (r) {
-                if (r.ok) itemsMade++;
-                else failures.push(b.name + " / " + (item.name || "item") + ": " + (r.err || "write failed"));
+                if (!r.ok) {
+                  failures.push(b.name + " / " + (item.name || "item") + ": " + (r.err || "write failed"));
+                  return null;
+                }
+                itemsMade++;
+                var truth = oldId && obscured[oldId];
+                if (!truth) return null;
+                return PT.store.stashObscuredTruth(env, copy.id, truth).then(function (sr) {
+                  if (sr.ok) obscuredMade++;
+                  // Say so rather than leaving a permanently unrevealable item
+                  // looking like a successful import.
+                  else failures.push(b.name + " / " + (item.name || "item") + ": imported, but its hidden true stats could not be restored (" + (sr.err || "write failed") + ")");
+                });
               });
             });
           }, Promise.resolve()).then(function () {
@@ -186,7 +206,7 @@
         });
       });
     }, Promise.resolve()).then(function () {
-      return { ok: failures.length === 0, bags: made, items: itemsMade, failures: failures };
+      return { ok: failures.length === 0, bags: made, items: itemsMade, obscured: obscuredMade, failures: failures };
     });
   };
 })(window.PartyTools);

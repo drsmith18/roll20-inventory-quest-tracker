@@ -58,6 +58,20 @@ new browser tab, pre-filled with:
 - your browser's user-agent string (the same "Chrome on Windows"-style
   string every website you visit can already read)
 - the current time
+- the result of Party Tools' start-up self-check (whether the Roll20 objects
+  it depends on were all found)
+- a short tail of its own recent activity — the last few things Party Tools
+  logged about itself, so a fault can be diagnosed from the report rather than
+  from a conversation
+
+That activity tail is scrubbed before it goes anywhere. Your Roll20 campaign ID
+and player ID are replaced with placeholders, and **the name of any bag or item
+is replaced with `<name>`** — so a bug report can never reveal what your party
+is carrying, what your DM has hidden, or what a disguised item really is.
+
+The ♥ tab also has a **Copy diagnostics** button, which puts the same
+information on your clipboard, scrubbed the same way, for you to paste
+wherever you like. It sends nothing on its own.
 
 Nothing is sent anywhere at this point. The GitHub issue form opens with
 that text already typed into it, and you see exactly what it says before

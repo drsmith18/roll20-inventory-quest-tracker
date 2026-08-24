@@ -78,14 +78,29 @@
   // inherits our id. Finding our id in the body we read back means our write
   // landed, whatever has happened to the document since — which is precisely
   // question (b), answered.
-  function writeMerged(h, mutate, attempts) {
+  // `mine` carries every rev id THIS logical write has used, across retries.
+  // Without it the second attempt only looks for its own new id, and a first
+  // attempt that echoes late — after our verify read, before the retry's read
+  // — gets reapplied on top of itself. That is the same double-apply the ring
+  // exists to prevent, just one attempt further along. (The stub's writes echo
+  // synchronously, so no test can reach it; real Roll20's don't.)
+  function writeMerged(h, mutate, attempts, mine) {
     if (st.readOnly) return Promise.resolve({ ok: false, err: "read-only: data written by a newer version" });
     attempts = attempts == null ? 4 : attempts;
+    mine = mine || [];
     return readBlob(h).then(function (cur) {
       var prev = PT.tryJson(cur);
+      // Before mutating anything: did an earlier attempt of ours land after
+      // all? If so this write is already done, and applying it again is the
+      // bug.
+      if (mine.length && prev && prev.revs &&
+          mine.some(function (r) { return prev.revs.indexOf(r) !== -1; })) {
+        return { ok: true, doc: prev, racedButLanded: true };
+      }
       var doc = mutate(prev);
       if (doc === null) return { ok: true, unchanged: true };
       var myRev = PT.uid();
+      mine.push(myRev);
       doc.rev = myRev;
       doc.revs = ((prev && prev.revs) || []).concat([myRev]).slice(-REV_RING);
       var text = JSON.stringify(doc);
@@ -95,13 +110,14 @@
         return readBlob(h).then(function (got) {
           if (got === text) return { ok: true, doc: doc };
           var landed = PT.tryJson(got);
-          if (landed && landed.revs && landed.revs.indexOf(myRev) !== -1) {
+          if (landed && landed.revs &&
+              mine.some(function (r) { return landed.revs.indexOf(r) !== -1; })) {
             // Our change is in there; the body differs only because the world
             // moved on afterwards. Reapplying it here is the bug, not the fix.
             return { ok: true, doc: landed, racedButLanded: true };
           }
           if (attempts <= 1) return { ok: false, err: "write did not persist (permissions, or repeated write races)" };
-          return writeMerged(h, mutate, attempts - 1);
+          return writeMerged(h, mutate, attempts - 1, mine);
         });
       });
     });
@@ -112,6 +128,12 @@
   // client; whether Roll20 permits players to create handouts is unverified,
   // so the follow-up body write (verified) is what decides success.
   function createHandout(share, firstDoc) {
+    // A read-only store must not create handouts either. writeMerged already
+    // refuses the body write, but without this the handout itself is created
+    // first and left empty — so a game whose write path is broken ends up with
+    // nameless PT- debris scattered through its journal, which is precisely
+    // what read-only is supposed to prevent.
+    if (st.readOnly) return Promise.resolve({ ok: false, err: "read-only: Party Tools cannot write to this game" });
     var h;
     try {
       h = Campaign.handouts.create({

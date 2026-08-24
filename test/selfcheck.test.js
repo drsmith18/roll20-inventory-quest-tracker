@@ -208,6 +208,20 @@ async function diagnostics() {
   check("and the placeholders show where they were",
     /<campaign>/.test(scrubbed) && /<player>/.test(scrubbed), scrubbed.slice(-200));
 
+  // The 🐞 button pre-fills a PUBLIC issue with this text. Every log line that
+  // names a bag or an item wraps it in curly quotes by convention — the same
+  // convention storage.js's redactInLog relies on — and appendGmLog echoes its
+  // own message when it refuses a write, which can be “created hidden bag …”.
+  // A DM filing a bug must not hand their table the prepped loot.
+  PT.log("created hidden bag “The Dragon's Hoard”");
+  PT.log("added 1× “Staff of Power” to “Party Loot”");
+  const safe = PT.diagnostics(PT.envInfo, null);
+  check("a hidden bag's name never reaches the diagnostic",
+    !/Dragon's Hoard/.test(safe), safe.slice(-260));
+  check("nor does an item's name", !/Staff of Power/.test(safe), safe.slice(-260));
+  check("but the shape of the line survives, so it is still diagnosable",
+    /created hidden bag “<name>”/.test(safe), safe.slice(-260));
+
   // A ring buffer that grows without bound is a memory leak in a page people
   // leave open for a six-hour session.
   for (let i = 0; i < 200; i++) PT.log("filler " + i);

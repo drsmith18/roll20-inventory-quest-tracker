@@ -91,16 +91,29 @@ window.PartyTools = window.PartyTools || {};
     return lines.join("\n");
   };
 
-  // Removes the two identifiers that would tie a pasted diagnostic to a real
-  // Roll20 game and account. Handout ids are left alone: they are meaningless
-  // outside the campaign and are often the thing that explains the bug.
+  // Makes a diagnostic safe to paste somewhere public — which is exactly what
+  // the 🐞 button does with it, into an issue tracker anyone can read.
+  //
+  // Three things go:
+  //
+  //   - the campaign and player ids, which tie the paste to a real game and a
+  //     real account;
+  //   - anything in curly quotes. Every log line that names a bag or an item
+  //     wraps it in “ ” by convention — storage.js's redactInLog depends on
+  //     that same convention — so this catches item names, bag names, and the
+  //     GM-only log text appendGmLog echoes when it refuses a write, which can
+  //     be “created hidden bag …”. A DM pasting a bug report must not hand the
+  //     table their prepped loot.
+  //
+  // Handout ids are left alone: meaningless outside the campaign, and often
+  // the thing that explains the bug.
   PT.scrub = function (text) {
     var out = String(text);
     try {
       if (window.campaign_id) out = out.split(String(window.campaign_id)).join("<campaign>");
       if (window.d20_player_id) out = out.split(String(window.d20_player_id)).join("<player>");
     } catch (e) { /* nothing to scrub against */ }
-    return out;
+    return out.replace(/“[^”]*”/g, "“<name>”");
   };
 
   // Tiny DOM builder. PT.el("div", {class: "x", text: "hi", onclick: fn}, [children])
@@ -111,7 +124,14 @@ window.PartyTools = window.PartyTools || {};
     // These buttons already carry a `title` written for a human, so use it as
     // the accessible name unless one was given explicitly. Done here rather
     // than at each call site so a new icon button can't forget.
-    if (tag === "button" && attrs.title && !attrs["aria-label"]) {
+    //
+    // ICON-ONLY is the point. aria-label REPLACES the visible text, so applying
+    // this to a button with real words in it hides them: the coin strip reads
+    // "🪙 137 gp, 12 sp (≈138.2 gp)" and labelling it would announce the action
+    // while silently swallowing the amounts. Anything longer than a symbol or
+    // two keeps its own text as its name.
+    if (tag === "button" && attrs.title && !attrs["aria-label"] &&
+        (!attrs.text || String(attrs.text).trim().length <= 2)) {
       attrs = Object.assign({}, attrs, { "aria-label": attrs.title });
     }
     Object.keys(attrs || {}).forEach(function (k) {
