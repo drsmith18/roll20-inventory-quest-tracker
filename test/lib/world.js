@@ -18,7 +18,18 @@ let idSeq = 0;
 function nextId(prefix) { return (prefix || "h") + ++idSeq; }
 
 // A Roll20 handout: attributes via get/save, body via the blob pair.
-function makeHandout(attrs) {
+//
+// updateBlobs optionally consults `collection._shouldDropWrite(handout, o)`
+// (see the fault-injection helpers on the handouts collection, below) — real
+// Roll20 SILENTLY discards a write on permission failure and on a lost
+// concurrent-write race (docs/roll20-spike-findings.md, S5): the call
+// returns normally, but the body on the server never changes. That silent
+// discard is the whole reason storage.js's writeMerged re-reads and
+// re-applies, so a test that wants to attack it needs to be able to
+// reproduce the discard, not just the happy path. OFF (predicate is null)
+// unless a test opts in, so every suite that doesn't touch this is
+// unaffected.
+function makeHandout(attrs, collection) {
   const blobs = { notes: "" };
   return {
     id: nextId("h"),
@@ -31,7 +42,12 @@ function makeHandout(attrs) {
       if (i >= 0) models.splice(i, 1);
     },
     _getLatestBlob(key, cb) { setTimeout(() => cb(blobs[key]), 0); },
-    updateBlobs(o) { Object.assign(blobs, o); }
+    updateBlobs(o) {
+      if (collection && collection._shouldDropWrite && collection._shouldDropWrite(this, o)) {
+        return; // accepted, silently discarded — exactly what real Roll20 does
+      }
+      Object.assign(blobs, o);
+    }
   };
 }
 
@@ -97,12 +113,30 @@ function createWorld(opts) {
   const handouts = {
     models: [],
     create(attrs) {
-      const h = makeHandout(attrs);
+      const h = makeHandout(attrs, handouts);
       h._collection = handouts;
       handouts.models.push(h);
       return h;
     },
-    get(id) { return handouts.models.find(h => h.id === id) || null; }
+    get(id) { return handouts.models.find(h => h.id === id) || null; },
+    // ---- fault injection (opt-in; unused by default) ----------------------
+    // Direct form: hand updateBlobs a predicate yourself, (handout, body) =>
+    // true to drop this write. Set to null (the default) to stop dropping.
+    _shouldDropWrite: null,
+    setFaultPredicate(fn) { this._shouldDropWrite = fn || null; },
+    // Convenience form matching how the S5 races actually bite: drop the
+    // next N writes aimed at one handout (or, with no id, the next N writes
+    // to ANY handout), then let writes through again. Overwrites any
+    // predicate set earlier by either form.
+    dropNextWrites(n, handoutId) {
+      let remaining = n;
+      this._shouldDropWrite = (h) => {
+        if (handoutId && h.id !== handoutId) return false;
+        if (remaining <= 0) return false;
+        remaining--;
+        return true;
+      };
+    }
   };
 
   win.Campaign = {

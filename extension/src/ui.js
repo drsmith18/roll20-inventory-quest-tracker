@@ -173,10 +173,31 @@
       "- Role: " + (env.isGM ? "DM" : "player"),
       "- Sheet: " + (env.sheet || "unknown"),
       "- Backend: " + (env.release || "unknown"),
+      "- Self-check: " + ((PT.health && PT.health.summary) || "not run"),
       "- Browser: " + navigator.userAgent,
       "- Time: " + new Date().toISOString()
-    ].join("\n");
-    return PT.ISSUES_URL + "/new?title=" + encodeURIComponent("[bug] ") + "&body=" + encodeURIComponent(body);
+    ];
+    // The recent-activity tail turns "it stopped working" into something
+    // diagnosable. Kept short on purpose: this all has to survive being a URL,
+    // and an over-long one is silently truncated by the browser rather than
+    // refused, which would lose the user's own description too.
+    var tail = PT.diagLog.slice(-8);
+    if (tail.length) {
+      body.push("", "_Recent activity:_", "```");
+      tail.forEach(function (e) {
+        body.push(new Date(e.t).toISOString().slice(11, 19) + " " +
+          (e.kind === "error" ? "ERROR " : "") + PT.scrub(e.text).slice(0, 160));
+      });
+      body.push("```");
+    }
+    var url = PT.ISSUES_URL + "/new?title=" + encodeURIComponent("[bug] ") + "&body=" + encodeURIComponent(body.join("\n"));
+    // Well under the ~8k where browsers and servers start dropping things.
+    if (url.length > 6000) {
+      url = PT.ISSUES_URL + "/new?title=" + encodeURIComponent("[bug] ") +
+        "&body=" + encodeURIComponent(body.slice(0, 9).join("\n") +
+          "\n\n_(activity log omitted — it was too long for a link. Use “Copy diagnostics” in the ♥ tab and paste it here.)_");
+    }
+    return url;
   }
 
   // ---- modal helper ---------------------------------------------------------
@@ -1377,6 +1398,35 @@
       PT.el("a", { class: "pt-bug", href: bugReportUrl(), target: "_blank", rel: "noopener", text: "🐞 Report a bug" })
     ]));
     about.appendChild(PT.el("p", { class: "pt-note", text: "The report opens on GitHub with the technical details pre-filled — just describe what happened. You need a (free) GitHub account to post it." }));
+    // No GitHub account, or a bug worth describing somewhere else: the same
+    // information, on the clipboard. This is the only diagnostic channel there
+    // is — nothing is ever transmitted automatically — so it has to be good.
+    about.appendChild(PT.el("button", {
+      class: "pt-btn", text: "Copy diagnostics",
+      title: "Copies version, role, the Roll20 self-check result and recent activity to the clipboard",
+      onclick: function (e) {
+        var btn = e.target;
+        var text = PT.diagnostics(env, { "Self-check": (PT.health && PT.health.summary) || "not run" });
+        var done = function (ok) {
+          btn.textContent = ok ? "Copied ✓" : "Press Ctrl+C";
+          setTimeout(function () { btn.textContent = "Copy diagnostics"; }, 3000);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(function () { done(true); }, function () { fallback(); });
+        } else fallback();
+        // Clipboard access can be refused (permissions, an insecure context,
+        // an unfocused document). Selecting the text still lets the user copy.
+        function fallback() {
+          var ta = PT.el("textarea", { style: "position:fixed;left:0;top:0;width:340px;height:160px;z-index:100000" });
+          ta.value = text;
+          document.body.appendChild(ta);
+          ta.select();
+          done(false);
+          ta.addEventListener("blur", function () { ta.remove(); });
+        }
+      }
+    }));
+    about.appendChild(PT.el("p", { class: "pt-note", text: "Nothing is ever sent automatically — this just puts the details on your clipboard for you to paste." }));
     about.appendChild(PT.el("p", {}, [
       PT.el("a", { class: "pt-kofi", href: PT.KOFI_URL, target: "_blank", rel: "noopener", text: "☕ Support on Ko-fi" })
     ]));
