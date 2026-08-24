@@ -46,23 +46,60 @@
     return readBlob(h).then(function (t) { return PT.tryJson(t); });
   };
 
+  // How many recent write ids a document carries. See writeMerged: this is
+  // the window within which we can still tell "my write landed and someone
+  // wrote after it" from "my write was lost". At real Roll20's ~1.6s echo,
+  // forty writes would have to land inside that window to overflow it, which
+  // no table produces. Costs about 700 bytes per document, against a ceiling
+  // of 8 MB (S4).
+  var REV_RING = 40;
+
   // The core write primitive. mutate(docOrNull) returns the new doc, or null
   // for "nothing to do". On every attempt the CURRENT body is re-read and
   // the mutation re-applied, so a lost race reapplies our change on top of
   // the winner instead of clobbering it (the S5 lesson).
+  //
+  // The confirmation is the subtle part. Comparing the body to exactly what we
+  // wrote answers the wrong question: it cannot tell
+  //
+  //   (a) "my write was lost"          — retrying is correct, from
+  //   (b) "my write landed, and then somebody else wrote"  — retrying applies
+  //       my change a SECOND time, on top of a document that already has it.
+  //
+  // Both look identical: the body simply isn't my text. Treating (b) as (a)
+  // silently doubled every non-idempotent change — a quantity delta, a purse
+  // deposit, a stacked item — while cheerfully reporting ok. splitCoins
+  // already carried its own `splitId` marker to defend against exactly this
+  // ("Money must be exactly-once"), but nothing else did, so every other
+  // delta was exposed.
+  //
+  // So each write stamps its own id into a short ring the document carries.
+  // Anyone who writes after us builds on the body they read, and therefore
+  // inherits our id. Finding our id in the body we read back means our write
+  // landed, whatever has happened to the document since — which is precisely
+  // question (b), answered.
   function writeMerged(h, mutate, attempts) {
     if (st.readOnly) return Promise.resolve({ ok: false, err: "read-only: data written by a newer version" });
     attempts = attempts == null ? 4 : attempts;
     return readBlob(h).then(function (cur) {
-      var doc = mutate(PT.tryJson(cur));
+      var prev = PT.tryJson(cur);
+      var doc = mutate(prev);
       if (doc === null) return { ok: true, unchanged: true };
-      doc.rev = PT.uid();
+      var myRev = PT.uid();
+      doc.rev = myRev;
+      doc.revs = ((prev && prev.revs) || []).concat([myRev]).slice(-REV_RING);
       var text = JSON.stringify(doc);
       try { h.updateBlobs({ notes: text }); }
       catch (e) { return { ok: false, err: "write threw: " + e.message }; }
       return PT.delay(verifyDelay()).then(function () {
         return readBlob(h).then(function (got) {
           if (got === text) return { ok: true, doc: doc };
+          var landed = PT.tryJson(got);
+          if (landed && landed.revs && landed.revs.indexOf(myRev) !== -1) {
+            // Our change is in there; the body differs only because the world
+            // moved on afterwards. Reapplying it here is the bug, not the fix.
+            return { ok: true, doc: landed, racedButLanded: true };
+          }
           if (attempts <= 1) return { ok: false, err: "write did not persist (permissions, or repeated write races)" };
           return writeMerged(h, mutate, attempts - 1);
         });

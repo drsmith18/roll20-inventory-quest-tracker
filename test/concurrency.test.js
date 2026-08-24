@@ -241,8 +241,14 @@ async function convergenceFuzz() {
 // same-tick race: real Roll20's write echo is ~1.6s (verifyDelay's default,
 // see storage.js), so any two party members adjusting the same bag within
 // that window race this exact path.
-async function knownBugFalseNegativeDoublesADelta() {
-  section("KNOWN BUG (see #41 report): a confirmation false-negative reapplies an already-landed delta:");
+//
+// FIXED. writeMerged now stamps each write's own id into a short ring the
+// document carries; anyone writing afterwards inherits it, so finding our id
+// in the body we read back distinguishes (b) from (a) and we stop reapplying.
+// The checks below are the regression guard — they failed before that change
+// and must never fail again.
+async function noDoubleAppliedDelta() {
+  section("a confirmation false-negative must not reapply an already-landed delta:");
   const w = freshWorld(true);
   const boot = bootStorage(w);
   const gm = env("dm", true);
@@ -254,13 +260,13 @@ async function knownBugFalseNegativeDoublesADelta() {
     w.PT.store.changeQty(alice, boot.bagId, "Party Loot", "rope", 1),
     w.PT.store.changeQty(bob, boot.bagId, "Party Loot", "rope", 1)
   ]);
-  check("both concurrent +1s report ok (this passing is part of the bug: neither caller is told anything is wrong)",
+  check("both concurrent +1s report ok",
     results[0].ok && results[1].ok, JSON.stringify(results));
 
   const doc = await w.PT.store.readDoc(boot.bagH);
   check("two concurrent +1 deltas on the SAME item converge to base(1) + 1 + 1 = 3, with neither delta counted twice",
     doc.items[0].qty === 3,
-    "got qty=" + doc.items[0].qty + " — a delta was silently reapplied by a writeMerged retry (see comment above)");
+    "got qty=" + doc.items[0].qty + " — a delta was reapplied by a writeMerged retry (see comment above)");
 }
 
 // ---- 2. silent write rejection ----------------------------------------------
@@ -372,7 +378,7 @@ async function logUnionMerge() {
 
 (async () => {
   await convergenceFuzz();
-  await knownBugFalseNegativeDoublesADelta();
+  await noDoubleAppliedDelta();
   await silentWriteRejection();
   await attemptExhaustion();
   await gmLogCreatingGuard();

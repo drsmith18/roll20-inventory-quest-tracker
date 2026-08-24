@@ -26,6 +26,18 @@ then, Party Tools runs at v0.9 in beta testing at the author's table.
 - Continuous integration on every push, and a tagged-release build producing
   the Chrome and Firefox zips.
 
+### Fixed
+- **Concurrent writes could silently double a quantity, a purse deposit or a
+  stacked item.** The check that confirmed a write had landed compared the
+  handout body to exactly what it had written, which cannot tell "my write was
+  lost" from "my write landed and then somebody else wrote". The second was
+  treated as the first, and the change was reapplied on top of a document that
+  already contained it — while reporting success. Two people each adding 1 to
+  the same item inside Roll20's ~1.6s write echo left it at 4, not 3. Coin
+  splits were already defended against this individually; every other delta
+  was not. The guarantee now lives in the write primitive itself, so it covers
+  all of them. See #50.
+
 ### Changed
 - Renamed to "Party Tools — Unofficial Shared Inventory for Roll20", with a
   non-affiliation disclaimer in the ♥ tab. Leading a store listing with
