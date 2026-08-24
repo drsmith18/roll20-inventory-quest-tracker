@@ -52,6 +52,11 @@
     ".pt-tabs{display:flex;border-bottom:1px solid var(--pt-edge);background:var(--pt-bg)}",
     ".pt-tab{flex:1;text-align:center;padding:8px 0;cursor:pointer;color:var(--pt-dim);border-bottom:2px solid transparent}",
     ".pt-tab:hover{color:var(--pt-text)}",
+    // Nothing in this panel showed a focus ring, so a keyboard user had no
+    // way to tell where they were. :focus-visible keeps it off for mouse
+    // clicks, which is why the panel never looked like it needed one.
+    "#pt-panel :focus-visible, #pt-launcher:focus-visible, .pt-modal :focus-visible{outline:2px solid var(--pt-accent);outline-offset:2px;border-radius:3px}",
+    "#pt-launcher{border:1px solid var(--pt-edge2)}",
     ".pt-tab.pt-active{color:var(--pt-text);border-bottom-color:var(--pt-accent);font-weight:bold}",
     ".pt-body{overflow-y:auto;padding:10px 12px;flex:1}",
     ".pt-bag{border:1px solid var(--pt-edge);border-radius:5px;margin-bottom:12px;background:var(--pt-bg2)}",
@@ -72,7 +77,7 @@
     // and extra space so the two aren't neighbours by accident.
     ".pt-iconbtn.pt-del{margin-left:10px;padding-left:10px;border-left:1px solid var(--pt-edge2);border-radius:0 4px 4px 0;color:#c98a8a}",
     ".pt-iconbtn.pt-del:hover{background:#4a2b2e;color:#f0c3cd}",
-    ".pt-purse{padding:6px 10px;color:var(--pt-gold);font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--pt-edge)}",
+    ".pt-purse{display:block;width:100%;text-align:left;background:none;border:none;font-family:inherit;padding:6px 10px;color:var(--pt-gold);font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--pt-edge)}",
     ".pt-purse:hover{background:var(--pt-bg3)}",
     ".pt-items{padding:4px 10px 8px}",
     ".pt-item{display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #2b2d33}",
@@ -204,19 +209,116 @@
   // opts (all optional): okText/cancelText relabel the two buttons (used by
   // the split flow's Confirm/Back step); onCancel fires after the Cancel/Back
   // button closes this modal — the split preview uses it to reopen the form.
+  // A tab in the panel's tab strip. These were plain divs with click handlers,
+  // which the keyboard cannot reach and a screen reader announces as nothing.
+  // Roving tabindex, per the usual tablist pattern: only the active tab is in
+  // the tab order, and Left/Right move between them.
+  function mkTab(name, label, description) {
+    var isActive = activeTab === name;
+    return PT.el("div", {
+      class: "pt-tab", "data-tab": name, text: label,
+      role: "tab", "aria-selected": isActive ? "true" : "false",
+      "aria-label": description,
+      tabindex: isActive ? "0" : "-1",
+      onclick: function () { activeTab = name; renderBody(); },
+      onkeydown: function (e) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          activeTab = name;
+          renderBody();
+          return;
+        }
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        e.preventDefault();
+        var all = Array.prototype.slice.call(document.querySelectorAll("#pt-panel .pt-tab"));
+        var i = all.indexOf(e.target);
+        if (i === -1) return;
+        var next = all[(i + (e.key === "ArrowRight" ? 1 : all.length - 1)) % all.length];
+        activeTab = next.getAttribute("data-tab");
+        renderBody();
+        var moved = document.querySelector("#pt-panel .pt-tab[data-tab='" + activeTab + "']");
+        if (moved) moved.focus();
+      }
+    });
+  }
+
+  // Focusable things inside a modal, for the focus trap. Deliberately a
+  // conservative list: everything this panel actually builds, and nothing that
+  // would pull in Roll20's own widgets if one ever ended up nested here.
+  var FOCUSABLE = "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
+  var modalSeq = 0;
+
   function modal(title, buildBody, onOk, opts) {
     opts = opts || {};
+    // Where focus was before we stole it, so it can be handed back on close.
+    // Without this, dismissing a modal drops the keyboard user at the top of
+    // Roll20's page rather than where they were working.
+    var returnFocusTo = document.activeElement;
+
+    var titleId = "pt-modal-title-" + (++modalSeq);
     var back = PT.el("div", { class: "pt-modal-back" });
-    var box = PT.el("div", { class: "pt-modal" }, [PT.el("h3", { text: title })]);
+    var box = PT.el("div", {
+      class: "pt-modal", role: "dialog", "aria-modal": "true", "aria-labelledby": titleId
+    }, [PT.el("h3", { id: titleId, text: title })]);
     var content = PT.el("div", {});
     buildBody(content);
+
+    function close(runCancel) {
+      document.removeEventListener("keydown", onKey, true);
+      back.remove();
+      if (runCancel && opts.onCancel) opts.onCancel();
+      // The trigger may itself have been re-rendered away while the modal was
+      // open, in which case there is nothing sensible to return to.
+      try { if (returnFocusTo && document.contains(returnFocusTo)) returnFocusTo.focus(); } catch (e) {}
+    }
+
     var row = PT.el("div", { class: "pt-row" }, [
-      PT.el("button", { class: "pt-btn", text: opts.okText || "OK", onclick: function () { if (onOk(content) !== false) back.remove(); } }),
-      PT.el("button", { class: "pt-btn pt-danger", text: opts.cancelText || "Cancel", onclick: function () { back.remove(); if (opts.onCancel) opts.onCancel(); } })
+      PT.el("button", { class: "pt-btn", text: opts.okText || "OK", onclick: function () { if (onOk(content) !== false) close(false); } }),
+      PT.el("button", { class: "pt-btn pt-danger", text: opts.cancelText || "Cancel", onclick: function () { close(true); } })
     ]);
     box.appendChild(content); box.appendChild(row); back.appendChild(box);
-    back.addEventListener("mousedown", function (e) { if (e.target === back) back.remove(); });
+    back.addEventListener("mousedown", function (e) { if (e.target === back) close(true); });
+
+    // Capture phase, and only while this modal is the topmost one: Roll20 has
+    // its own Escape handling, and a modal that let Escape through would close
+    // itself AND whatever Roll20 decided to do about it.
+    function onKey(e) {
+      if (back.parentNode !== document.body) return;
+      var stack = document.querySelectorAll(".pt-modal-back");
+      if (stack[stack.length - 1] !== back) return; // a later modal owns the keyboard
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        e.preventDefault();
+        close(true);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      // Trap Tab inside the dialog. Without this, Tab walks straight out into
+      // the Roll20 page behind the overlay, where the user cannot see where
+      // they are.
+      var items = Array.prototype.filter.call(box.querySelectorAll(FOCUSABLE), function (el) {
+        if (el.disabled || el.type === "hidden" || el.hasAttribute("hidden")) return false;
+        // Not offsetParent: that reports null whenever there is no layout at
+        // all, which silently emptied the trap under test.
+        try {
+          var cs = window.getComputedStyle(el);
+          if (cs && (cs.display === "none" || cs.visibility === "hidden")) return false;
+        } catch (e) { /* no style engine: assume it's real */ }
+        return true;
+      });
+      if (!items.length) return;
+      var first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+    document.addEventListener("keydown", onKey, true);
+
     document.body.appendChild(back);
+    // Focus the first real control, so a keyboard user starts inside the
+    // dialog rather than having to Tab their way in from the page behind it.
+    var firstField = box.querySelector(FOCUSABLE);
+    if (firstField) { try { firstField.focus(); } catch (e) {} }
+    return { close: close, box: box };
   }
 
   function coinModal(bag) {
@@ -1059,8 +1161,9 @@
         }
       }));
     }
-    var purse = PT.el("div", {
-      class: "pt-purse", text: "🪙 " + PT.purseLabel(d.purse), title: "Click to add or remove coins",
+    var purse = PT.el("button", {
+      class: "pt-purse", type: "button", text: "🪙 " + PT.purseLabel(d.purse),
+      title: "Add or remove coins in “" + d.name + "”",
       onclick: function () { coinModal(bag); }
     });
     var assignRows = [];
@@ -1538,7 +1641,13 @@
     else if (activeTab === "log") renderLog(body);
     else renderAbout(body);
     panel.querySelectorAll(".pt-tab").forEach(function (t) {
-      t.classList.toggle("pt-active", t.getAttribute("data-tab") === activeTab);
+      var on = t.getAttribute("data-tab") === activeTab;
+      t.classList.toggle("pt-active", on);
+      // The visual state and the announced state must never disagree, and the
+      // roving tabindex keeps the tab strip a single stop in the page's tab
+      // order rather than three.
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.setAttribute("tabindex", on ? "0" : "-1");
     });
     if (sameTab) applyScrollTop(body, scrollTop);
     lastRenderedTab = activeTab;
@@ -1681,7 +1790,16 @@
     // Icon only. Emoji rotated by the vertical writing-mode read as a red
     // arrow; vertical text was legible but visually noisy. An inline SVG
     // chest renders identically everywhere and needs no rotation.
-    launcher = PT.el("div", { id: "pt-launcher", title: "Party Tools — shared inventory", onclick: togglePanel });
+    // A button, not a div: a div with an onclick cannot be reached by Tab and
+    // is announced as nothing at all. Roll20's own page is the surrounding tab
+    // order, so this is the only way in from the keyboard.
+    launcher = PT.el("button", {
+      id: "pt-launcher", type: "button",
+      title: "Party Tools — shared inventory",
+      "aria-label": "Open Party Tools — shared party inventory",
+      "aria-expanded": "false",
+      onclick: togglePanel
+    });
     launcher.innerHTML =
       '<svg width="22" height="22" viewBox="0 0 16 16" aria-label="Party Tools">' +
       '<path fill="#e8cf85" d="M2.2 6.4a3.8 3.8 0 0 1 3.8-3.8h4a3.8 3.8 0 0 1 3.8 3.8v1.1H2.2z"/>' +
@@ -1711,15 +1829,15 @@
     });
     var head = PT.el("div", { class: "pt-head" }, [
       titleSpan, roleBadge,
-      PT.el("button", { class: "pt-iconbtn", text: "🐞", title: "Report a bug on GitHub", onclick: function () { window.open(bugReportUrl(), "_blank"); } }),
-      PT.el("button", { class: "pt-iconbtn", text: "☕", title: "Support on Ko-fi", onclick: function () { window.open(PT.KOFI_URL, "_blank"); } }),
-      PT.el("button", { class: "pt-iconbtn", text: "—", title: "Minimise (UI-10: also hides instantly for screen shares)", onclick: togglePanel })
+      PT.el("button", { class: "pt-iconbtn", type: "button", text: "🐞", title: "Report a bug on GitHub", "aria-label": "Report a bug on GitHub", onclick: function () { window.open(bugReportUrl(), "_blank"); } }),
+      PT.el("button", { class: "pt-iconbtn", type: "button", text: "☕", title: "Support on Ko-fi", "aria-label": "Support on Ko-fi", onclick: function () { window.open(PT.KOFI_URL, "_blank"); } }),
+      PT.el("button", { class: "pt-iconbtn", type: "button", text: "—", title: "Minimise (UI-10: also hides instantly for screen shares)", "aria-label": "Minimise Party Tools", onclick: togglePanel })
     ]);
     makeDraggable(head);
-    var tabs = PT.el("div", { class: "pt-tabs" }, [
-      PT.el("div", { class: "pt-tab", "data-tab": "inventory", text: "Inventory", onclick: function () { activeTab = "inventory"; renderBody(); } }),
-      PT.el("div", { class: "pt-tab", "data-tab": "log", text: "Log", onclick: function () { activeTab = "log"; renderBody(); } }),
-      PT.el("div", { class: "pt-tab", "data-tab": "about", text: "♥", onclick: function () { activeTab = "about"; renderBody(); } })
+    var tabs = PT.el("div", { class: "pt-tabs", role: "tablist", "aria-label": "Party Tools sections" }, [
+      mkTab("inventory", "Inventory", "Inventory"),
+      mkTab("log", "Log", "Activity log"),
+      mkTab("about", "♥", "About, backup and support")
     ]);
     panel.appendChild(head); panel.appendChild(tabs);
     panel.appendChild(PT.el("div", { class: "pt-body" }));
@@ -1762,9 +1880,14 @@
   function togglePanel() {
     var opening = panel.style.display === "none";
     panel.style.display = opening ? "flex" : "none";
+    if (launcher) launcher.setAttribute("aria-expanded", opening ? "true" : "false");
     if (opening) {
       renderBody();
       ui.refresh();
+      // Land the keyboard inside the panel it just opened, not back in the
+      // Roll20 page behind it.
+      var firstTab = panel.querySelector(".pt-tab.pt-active") || panel.querySelector(".pt-tab");
+      if (firstTab) { try { firstTab.focus(); } catch (e) {} }
       if (!pollTimer) pollTimer = setInterval(function () { ui.refresh(); }, 4000);
     } else if (pollTimer) {
       clearInterval(pollTimer); pollTimer = null;

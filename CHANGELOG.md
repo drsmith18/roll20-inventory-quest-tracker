@@ -26,6 +26,13 @@ then, Party Tools runs at v0.9 in beta testing at the author's table.
 - Continuous integration on every push, and a tagged-release build producing
   the Chrome and Firefox zips.
 
+- **The panel can be used from the keyboard.** Modals are announced as
+  dialogs, close on Escape, keep Tab inside themselves, and hand focus back to
+  wherever it was when they close. The tab strip is a real tablist with arrow
+  keys. The launcher and the coin strip are buttons rather than clickable
+  divs, so they can be reached and focused at all. Icon-only buttons carry
+  their tooltip as an accessible name, and there is now a visible focus ring.
+
 ### Fixed
 - **Concurrent writes could silently double a quantity, a purse deposit or a
   stacked item.** The check that confirmed a write had landed compared the

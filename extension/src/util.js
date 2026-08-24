@@ -106,6 +106,14 @@ window.PartyTools = window.PartyTools || {};
   // Tiny DOM builder. PT.el("div", {class: "x", text: "hi", onclick: fn}, [children])
   PT.el = function (tag, attrs, children) {
     var node = document.createElement(tag);
+    attrs = attrs || {};
+    // An icon-only button announces itself as its emoji, or as nothing at all.
+    // These buttons already carry a `title` written for a human, so use it as
+    // the accessible name unless one was given explicitly. Done here rather
+    // than at each call site so a new icon button can't forget.
+    if (tag === "button" && attrs.title && !attrs["aria-label"]) {
+      attrs = Object.assign({}, attrs, { "aria-label": attrs.title });
+    }
     Object.keys(attrs || {}).forEach(function (k) {
       if (attrs[k] === undefined || attrs[k] === null) return; // absent, not "undefined"
       if (k === "text") node.textContent = attrs[k];
