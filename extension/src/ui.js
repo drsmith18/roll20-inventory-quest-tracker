@@ -1316,6 +1316,10 @@
   function renderAbout(body) {
     var about = PT.el("div", { class: "pt-about" });
     about.appendChild(PT.el("p", { text: "Party Tools v" + PT.VERSION + " — shared party inventory for Roll20. All data lives inside this game as journal handouts named PT-…; deleting those deletes the party's data." }));
+    // Trademark position: "Roll20" is used descriptively, as a compatibility
+    // claim. Both stores require that nothing implies this is an official
+    // Roll20 product, so the disclaimer ships in the UI as well as the listing.
+    about.appendChild(PT.el("p", { class: "pt-note", text: "Not affiliated with, endorsed by, or sponsored by Roll20 or The Orr Group, LLC." }));
     about.appendChild(PT.el("p", {}, [
       PT.el("a", { class: "pt-bug", href: bugReportUrl(), target: "_blank", rel: "noopener", text: "🐞 Report a bug" })
     ]));

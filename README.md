@@ -1,10 +1,15 @@
-# Party Tools for Roll20 — shared inventory & quest tracker
+# Party Tools — Unofficial Shared Inventory for Roll20
+
+[![tests](https://github.com/drsmith18/roll20-inventory-quest-tracker/actions/workflows/test.yml/badge.svg)](https://github.com/drsmith18/roll20-inventory-quest-tracker/actions/workflows/test.yml)
 
 A browser extension (Chrome and Firefox) that adds a **shared party inventory** to a Roll20 game —
 bags of items and coins the whole party can see and edit, with a full
 who-did-what activity log. A DM-controlled quest tracker is planned next.
 All data is stored *inside* the Roll20 campaign itself (as journal
 handouts), so there is no external server, no accounts, and nothing to host.
+
+> **Not affiliated with, endorsed by, or sponsored by Roll20 or The Orr
+> Group, LLC.** "Roll20" is used here only to say what this tool works with.
 
 **Status: v0.9 beta — the inventory is feature-complete and in testing at
 the author's own table.** Not in the browser add-on stores yet, so it
@@ -91,6 +96,8 @@ account? Tell your DM and they can file it:
 | Path | What it is |
 |---|---|
 | `extension/` | The browser extension — the actual product |
+| `CHANGELOG.md` | What changed in each version, and the storage schema version |
+| `LICENSE` | MIT |
 | `INSTALL.md` | Install guide for players — the link to send your group |
 | `docs/roll20-party-tools-prd.md` | Product requirements (v0.5). Every requirement has an ID |
 | `docs/future-ideas.md` | Ideas and table feedback not yet built — shop sheets, sub-bags, and what would settle each open question |
@@ -98,6 +105,7 @@ account? Tell your DM and they can file it:
 | `docs/roll20-spike-brief.md` | The six make-or-break tests that were run before any code |
 | `docs/roll20-spike-findings.md` | The answers — all six spikes, with evidence |
 | `test/` | Automated tests (`npm install && npm test`) — see below |
+| `.github/workflows/` | CI (tests on every push) and the tagged-release build |
 | `spikes/` | Throwaway console-test code from the spike phase; kept for reference |
 
 ## Tests
@@ -132,6 +140,11 @@ character you care about. Real play in the test game is still the gate.
   game.
 - Nothing in this repo may contain credentials, session tokens, campaign
   IDs, or anything else from a real Roll20 account.
+
+## Licence
+
+[MIT](LICENSE) — do what you like with it, keep the copyright notice,
+no warranty.
 
 ## Support
 

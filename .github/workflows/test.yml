@@ -1,0 +1,29 @@
+# Runs the extension's own test suite on every push and pull request.
+#
+# The suites boot the real extension files inside jsdom against a stubbed
+# Roll20 campaign, so a green run exercises what ships. They take ~2.5 minutes,
+# most of it deliberate waiting on the same journal-settle and write-verify
+# delays the real thing uses — hence the generous timeout.
+name: tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      # jsdom is the only dependency; the extension itself has none.
+      - run: npm ci
+
+      - run: npm test

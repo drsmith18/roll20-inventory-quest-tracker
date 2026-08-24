@@ -1,11 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "Party Tools for Roll20",
+  "name": "Party Tools — Unofficial Shared Inventory for Roll20",
   "version": "0.9.20",
   "browser_specific_settings": {
     "gecko": { "id": "party-tools@drsmith18.github.io", "strict_min_version": "128.0" }
   },
-  "description": "Shared party inventory (and later, quest tracker) for Roll20 games. Stores everything inside the campaign itself as handouts.",
+  "description": "Unofficial shared party inventory for Roll20 games: bags, coins and an activity log, stored inside your own campaign.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "content_scripts": [
     {
       "matches": ["https://app.roll20.net/editor*", "https://app.roll20.net/editor/*"],

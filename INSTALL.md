@@ -59,7 +59,8 @@ answers:
 4. A file browser opens. Navigate to the folder you unzipped and select the
    **`extension`** folder — the one containing a file called
    `manifest.json`. Click *Select Folder* / *Open*.
-5. A card appears saying **Party Tools for Roll20**. Done.
+5. A card appears saying **Party Tools — Unofficial Shared Inventory for
+   Roll20**. Done.
 
 **Chrome will nag you.** Every time you start Chrome you may see a popup
 saying *"Disable developer mode extensions"*. This is Chrome being cautious
