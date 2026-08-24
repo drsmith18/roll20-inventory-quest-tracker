@@ -1313,6 +1313,59 @@
     });
   }
 
+  // ---- backup ---------------------------------------------------------------
+  // Export is deliberately one click with no confirmation: it only ever reads,
+  // and the file lands in the browser's downloads folder like any other.
+  function exportData(btn) {
+    var label = btn ? btn.textContent : null;
+    if (btn) { btn.disabled = true; btn.textContent = "Exporting…"; }
+    function done() { if (btn) { btn.disabled = false; btn.textContent = label; } }
+    PT.backup.build(env).then(function (doc) {
+      if (!doc) { done(); ui.toast("Party Tools: there's nothing to export yet."); return; }
+      var s = PT.backup.summarise(doc);
+      PT.backup.download(doc);
+      done();
+      ui.toast("Exported " + s.bags + " bag(s), " + s.items + " item(s) and " + s.coins + ".");
+    }).catch(function (e) {
+      done();
+      ui.toast("Party Tools: the export failed — " + (e && e.message ? e.message : "unknown error"));
+    });
+  }
+
+  // Import always shows what it is about to do first. The counts come from the
+  // file, not from a promise about the file.
+  function importData() {
+    var input = PT.el("input", { type: "file", accept: "application/json,.json", style: "display:none" });
+    input.addEventListener("change", function () {
+      var file = input.files && input.files[0];
+      input.remove();
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onerror = function () { ui.toast("Party Tools: couldn't read that file."); };
+      reader.onload = function () {
+        var parsed = PT.backup.parse(String(reader.result || ""));
+        if (!parsed.ok) { ui.toast("Party Tools: " + parsed.err); return; }
+        var s = PT.backup.summarise(parsed.doc);
+        modal("Import party data", function (c) {
+          c.appendChild(PT.el("p", { text: "This file holds " + s.bags + " bag(s)" + (s.hidden ? " (" + s.hidden + " hidden)" : "") + ", " + s.items + " item(s) and " + s.coins + "." }));
+          c.appendChild(PT.el("p", { class: "pt-note", text: "Exported " + (s.exportedAt || "at an unknown time") + " by " + (s.exportedBy || "unknown") + ", from Party Tools v" + (s.version || "?") + "." }));
+          c.appendChild(PT.el("p", { text: "Importing ADDS these bags to this game, each marked “(imported)”. Nothing already here is changed, overwritten or deleted." }));
+          c.appendChild(PT.el("p", { class: "pt-note", text: "Large imports take a while: every bag and item is written to Roll20 one at a time and verified, the same as if you had added them by hand." }));
+        }, function () {
+          ui.toast("Importing " + s.bags + " bag(s)… this may take a minute.");
+          PT.backup.restore(env, parsed.doc).then(function (r) {
+            if (r.ok) ui.toast("Imported " + r.bags + " bag(s) and " + r.items + " item(s).");
+            else ui.toast("Imported " + r.bags + " bag(s) and " + r.items + " item(s), but " + r.failures.length + " thing(s) failed: " + r.failures.slice(0, 3).join("; "));
+            renderBody();
+          });
+        }, { okText: "Import" });
+      };
+      reader.readAsText(file);
+    });
+    document.body.appendChild(input);
+    input.click();
+  }
+
   function renderAbout(body) {
     var about = PT.el("div", { class: "pt-about" });
     about.appendChild(PT.el("p", { text: "Party Tools v" + PT.VERSION + " — shared party inventory for Roll20. All data lives inside this game as journal handouts named PT-…; deleting those deletes the party's data." }));
@@ -1328,6 +1381,29 @@
       PT.el("a", { class: "pt-kofi", href: PT.KOFI_URL, target: "_blank", rel: "noopener", text: "☕ Support on Ko-fi" })
     ]));
     about.appendChild(PT.el("p", { class: "pt-note", text: "If this tool is useful at your table, a coffee keeps it maintained." }));
+
+    // Backup. Deliberately above the DM-tools block and available to players
+    // too: anyone who can see the inventory can take a copy of what they can
+    // see, and the person who most wants a backup is not always the DM.
+    about.appendChild(PT.el("hr", { style: "border-color:#37305c;margin:12px 0" }));
+    about.appendChild(PT.el("p", { class: "pt-note", text: "Backup:" }));
+    about.appendChild(PT.el("div", { class: "pt-row" }, [
+      PT.el("button", {
+        class: "pt-btn", text: "Export party data…", title: "Save every bag, item and coin to a file on this computer",
+        onclick: function (e) { exportData(e.target); }
+      }),
+      env.isGM ? PT.el("button", {
+        class: "pt-btn", text: "Import from a file…", title: "Restore bags from a Party Tools export",
+        onclick: function () { importData(); }
+      }) : null
+    ]));
+    about.appendChild(PT.el("p", {
+      class: "pt-note",
+      text: env.isGM
+        ? "Export saves a .json file you can keep. Importing ADDS the bags from a file alongside what's already here — it never overwrites or deletes anything. A DM's export contains hidden bags and the true stats behind obscured items, so treat that file as yours alone."
+        : "Export saves a .json file of everything you can see. Only the DM can import a file back into a game."
+    }));
+
     if (env.isGM) {
       about.appendChild(PT.el("hr", { style: "border-color:#37305c;margin:12px 0" }));
       about.appendChild(PT.el("p", { class: "pt-note", text: "DM tools:" }));

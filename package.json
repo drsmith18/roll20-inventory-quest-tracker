@@ -5,7 +5,7 @@
   "description": "Test harness for the Party Tools browser extension. The extension itself has no build step and no dependencies \u2014 this package exists only so the tests can use jsdom.",
   "license": "MIT",
   "scripts": {
-    "test": "node test/version.test.js && node test/sheets.test.js && node test/storage-init.test.js && node test/panel-ui.test.js"
+    "test": "node test/version.test.js && node test/backup.test.js && node test/sheets.test.js && node test/storage-init.test.js && node test/panel-ui.test.js"
   },
   "devDependencies": {
     "jsdom": "^24.0.0"

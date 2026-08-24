@@ -52,6 +52,10 @@ installs by hand.
 - Coin splitting only ever offers players the party — characters a player
   controls, plus any NPC the DM tags `party` in the journal. The DM still
   sees every character
+- **Export and import**: save every bag, item and coin to a file, and restore
+  it into a game. Importing adds bags alongside what's there — it never
+  overwrites or deletes. A player's export can only ever contain what that
+  player can already see
 
 Not yet built: sub-bags, and the quest tracker. That's the current order of
 work.
@@ -99,6 +103,11 @@ account? Tell your DM and they can file it:
 | `CHANGELOG.md` | What changed in each version, and the storage schema version |
 | `LICENSE` | MIT |
 | `INSTALL.md` | Install guide for players — the link to send your group |
+| `PRIVACY.md` | The privacy policy — what leaves your browser, and when |
+| `CONTRIBUTING.md` | How to run the tests, the ground rules, the release process |
+| `SECURITY.md` | How to report a security issue privately |
+| `docs/faq.md` | The questions this design generates, answered |
+| `docs/reviewer-notes.md` | Why `world: MAIN` is necessary — for store reviewers |
 | `docs/roll20-party-tools-prd.md` | Product requirements (v0.5). Every requirement has an ID |
 | `docs/future-ideas.md` | Ideas and table feedback not yet built — shop sheets, sub-bags, and what would settle each open question |
 | `docs/roll20-technical-findings.md` | What was verified by inspecting Roll20 live, 8 Aug 2026 |
@@ -117,13 +126,18 @@ npm test
 
 The tests boot the **real** extension inside jsdom against a stubbed Roll20
 campaign, so they exercise the shipped files rather than a copy of the logic.
-Two suites: `test/sheets.test.js` (character-sheet writes — the compendium
-weapon graph, taking items back off a sheet, who a player may split coins
-with) and `test/storage-init.test.js` (the DM's first run, and a player who
-opens the panel before the DM has set the game up).
+Five suites:
 
-They take about a minute, most of it deliberate waiting on the same journal
-settling and write-verification delays the real thing uses.
+| Suite | What it covers |
+|---|---|
+| `test/version.test.js` | The version agrees across the manifest, `PT.VERSION` and `package.json`, and the manifest is submittable |
+| `test/backup.test.js` | Export and import — the round trip keeps payload data, and a player's export cannot contain the DM's secrets |
+| `test/sheets.test.js` | Character-sheet writes — the compendium weapon graph, taking items back off a sheet, who a player may split coins with |
+| `test/storage-init.test.js` | The DM's first run, and a player who opens the panel before the DM has set the game up |
+| `test/panel-ui.test.js` | Panel rendering and the states it can be mounted in |
+
+They take about two and a half minutes, most of it deliberate waiting on the
+same journal settling and write-verification delays the real thing uses.
 
 **What they can't tell you:** the stubs are built from
 `docs/roll20-spike-findings.md`, so a green run proves the logic is right

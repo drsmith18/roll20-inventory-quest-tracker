@@ -12,7 +12,7 @@ const path = require("path");
 const { JSDOM } = require("jsdom");
 
 const SRC = path.join(__dirname, "..", "..", "extension", "src");
-const ALL_SCRIPTS = ["util.js", "env.js", "storage.js", "drops.js", "sheets.js", "ui.js", "main.js"];
+const ALL_SCRIPTS = ["util.js", "env.js", "storage.js", "backup.js", "drops.js", "sheets.js", "ui.js", "main.js"];
 
 let idSeq = 0;
 function nextId(prefix) { return (prefix || "h") + ++idSeq; }

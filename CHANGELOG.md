@@ -6,7 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-v1.0.0 will be the first public release on browser extension stores. Until then, Party Tools runs at v0.9 in beta testing at the author's table.
+v1.0.0 will be the first public release on the browser extension stores. Until
+then, Party Tools runs at v0.9 in beta testing at the author's table.
+
+### Added
+- **Export and import.** The ♥ tab can save every bag, item, coin and log
+  entry to a `.json` file, and restore one back into a game. Until now the
+  party's data lived only in handouts we tell people never to touch, with no
+  way to get it back out — a deleted journal folder meant a campaign's loot
+  was simply gone. Importing adds the file's bags alongside whatever is
+  already there, marked "(imported)"; it never overwrites or deletes. A DM's
+  export contains hidden bags and the true stats behind obscured items; a
+  player's cannot, because Roll20 never sends a player that data.
+- Icons at 16/32/48/128, rendered from the launcher chest already in the
+  panel. The manifest had none.
+- A licence (MIT), a privacy policy, contributor and security guidance, an
+  FAQ, and reviewer notes explaining why the extension runs in the page's own
+  JavaScript context.
+- Continuous integration on every push, and a tagged-release build producing
+  the Chrome and Firefox zips.
+
+### Changed
+- Renamed to "Party Tools — Unofficial Shared Inventory for Roll20", with a
+  non-affiliation disclaimer in the ♥ tab. Leading a store listing with
+  another party's trademark is the most common cause of rejection.
+- The version number now has one source of truth (the manifest), with a test
+  that fails if `PT.VERSION` or `package.json` drifts from it.
 
 ## [0.9.20] — 2026-08-18
 

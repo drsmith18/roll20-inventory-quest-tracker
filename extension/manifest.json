@@ -19,6 +19,7 @@
         "src/util.js",
         "src/env.js",
         "src/storage.js",
+        "src/backup.js",
         "src/drops.js",
         "src/sheets.js",
         "src/ui.js",
