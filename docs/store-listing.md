@@ -18,7 +18,7 @@ in six months does not mean rewriting all of this from memory.
 | Homepage | `https://github.com/drsmith18/roll20-inventory-quest-tracker` |
 | Support / issues | `https://github.com/drsmith18/roll20-inventory-quest-tracker/issues` |
 | Privacy policy | `https://github.com/drsmith18/roll20-inventory-quest-tracker/blob/main/PRIVACY.md` |
-| Licence | *(see the open question in the release checklist — the repo has no LICENSE file yet)* |
+| Licence | MIT (see `LICENSE`) |
 | Category | Chrome: **Workflow & Planning**. AMO: **Games & Entertainment** |
 | Language | English (UK) |
 

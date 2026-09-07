@@ -7,8 +7,10 @@ All data is stored *inside* the Roll20 campaign itself (as journal
 handouts), so there is no external server, no accounts, and nothing to host.
 
 **Status: v0.9 beta — the inventory is feature-complete and in testing at
-the author's own table.** Not in the browser add-on stores yet, so it
-installs by hand.
+the author's own table.** Being submitted to the Chrome Web Store and
+Firefox Add-ons; until those listings are live it installs by hand. See
+[docs/release-checklist.md](docs/release-checklist.md) for where that
+stands.
 
 > ### 👉 Just want to install it and play?
 > **Read [INSTALL.md](INSTALL.md)** — step-by-step instructions for Chrome
@@ -54,7 +56,8 @@ work.
 ## Installing
 
 Full instructions for players are in **[INSTALL.md](INSTALL.md)** (Chrome,
-Edge and Firefox, with troubleshooting).
+Edge and Firefox, with troubleshooting). Once the store listings are live
+that becomes a two-click job; until then it's the from-source route below.
 
 Short version for the impatient: download the repo as a ZIP, unzip it, then
 in Chrome go to `chrome://extensions`, turn on **Developer mode**, click
@@ -95,6 +98,7 @@ account? Tell your DM and they can file it:
 | `extension/` | The browser extension — the actual product |
 | `INSTALL.md` | Install guide for players — the link to send your group |
 | `PRIVACY.md` | Privacy policy. The stores link to it; it is also the honest answer to "is this safe?" |
+| `LICENSE` | MIT |
 | `docs/release-checklist.md` | How a release gets tested and submitted to both add-on stores |
 | `docs/store-listing.md` | Store listing copy and every dashboard answer, written out ready to paste |
 | `tools/` | Release tooling — `npm run build` packages the zip, `npm run icons` redraws the PNGs |
@@ -159,6 +163,10 @@ and for Firefox that has never happened. See
   game.
 - Nothing in this repo may contain credentials, session tokens, campaign
   IDs, or anything else from a real Roll20 account.
+
+## Licence
+
+[MIT](LICENSE). Use it, fork it, run your own version.
 
 ## Support
 

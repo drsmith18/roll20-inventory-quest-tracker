@@ -3,32 +3,75 @@
 Party Tools adds a shared party inventory to your Roll20 game: bags of loot
 and coins everyone can see and edit, right next to the tabletop.
 
-It's in **beta**, which means it isn't in the Chrome or Firefox add-on
-stores yet, so installing takes about three minutes of clicking rather than
-one. These instructions assume you've never installed an extension this way
-before. Nothing here can break your computer or your Roll20 account.
+> ### Where things stand
+>
+> Party Tools is being submitted to the **Chrome Web Store** and **Firefox
+> Add-ons**. Until those listings are approved, use
+> **[Install from source](#install-from-source)** below — it takes about
+> three minutes of clicking. The one-click buttons appear here the moment the
+> listings go live.
 
 ---
 
 ## Before you start: is this safe?
 
-Fair question — you're being asked to install software from a link. Straight
-answers:
+Fair question — you're being asked to install software. Straight answers:
 
 - **It only runs on Roll20 game pages.** It cannot see your email, your
   banking, or any other website. That restriction is written into the
   extension and enforced by your browser, not just promised here.
 - **Nothing leaves your browser.** There's no server, no account, no
   tracking, no analytics. Your party's inventory is stored inside your
-  Roll20 game itself, as journal handouts.
+  Roll20 game itself, as journal handouts. The full
+  [privacy policy](PRIVACY.md) is one short page.
 - **You can read every line of it.** It's plain, readable code in this
-  repository — no hidden or scrambled parts.
+  repository — nothing hidden, scrambled or minified. It's
+  [MIT licensed](LICENSE), so you can also copy it, change it, or run your
+  own version.
+- **The store versions are reviewed.** Google and Mozilla both check the
+  code before it goes up, and Mozilla cryptographically signs the Firefox
+  build so your browser can verify it hasn't been tampered with.
 - **It can be removed at any time**, and removing it doesn't delete your
   party's inventory (that lives in the Roll20 game, not in the extension).
 
 ---
 
-## Step 1 — Download it (everyone does this)
+## Install from the store
+
+*Not live yet — see [Where things stand](#where-things-stand). Once they are,
+this is the whole process:*
+
+### Chrome, Edge, Brave, Opera
+
+1. Open the Chrome Web Store listing. *(Link to follow.)*
+2. Click **Add to Chrome**, then **Add extension**.
+
+That's it. It updates itself from then on.
+
+### Firefox
+
+1. Open the Firefox Add-ons listing. *(Link to follow.)*
+2. Click **Add to Firefox**, then **Add**.
+
+That's it too — and unlike the from-source route below, it stays installed
+when you close the browser. You need **Firefox 140 or newer** (Menu → Help →
+About Firefox to check).
+
+### Safari
+
+Not supported. Safari needs a completely different packaging process.
+
+---
+
+## Install from source
+
+This is the route to use while the store listings are pending — and it stays
+available afterwards for anyone who'd rather run the code themselves.
+
+These instructions assume you've never installed an extension this way
+before. Nothing here can break your computer or your Roll20 account.
+
+### Step 1 — Download it (everyone does this)
 
 1. Go to the [repository page](https://github.com/drsmith18/roll20-inventory-quest-tracker).
 2. Click the green **Code** button near the top right.
@@ -36,20 +79,16 @@ answers:
 4. Find the downloaded file and **unzip it** (Windows: right-click →
    *Extract All*. Mac: double-click it).
 5. You'll get a folder with a long name like
-   `roll20-inventory-quest-tracker-claude-roll20-party-tools-xslkfa`.
-   **Open it.** Inside you'll see a folder called **`extension`** — that's
-   the one that matters. Remember where it is.
+   `roll20-inventory-quest-tracker-main`. **Open it.** Inside you'll see a
+   folder called **`extension`** — that's the one that matters. Remember
+   where it is.
 
 > **Don't delete this folder afterwards.** Unlike a normal app, your browser
 > reads the extension from this folder every time it starts. Put it
 > somewhere sensible like your Documents folder, not in Downloads where you
 > might clear it out.
 
----
-
-## Step 2 — Install it in your browser
-
-### Chrome (also Edge, Brave, Opera and other Chrome-like browsers)
+### Step 2a — Chrome (also Edge, Brave, Opera and other Chrome-like browsers)
 
 1. Type `chrome://extensions` into the address bar and press Enter.
    *(On Edge it's `edge://extensions` instead.)*
@@ -64,10 +103,9 @@ answers:
 **Chrome will nag you.** Every time you start Chrome you may see a popup
 saying *"Disable developer mode extensions"*. This is Chrome being cautious
 about anything not installed from its store. Click the **X** to dismiss it —
-don't click "Disable". It'll stop once the extension is in the store
-properly.
+don't click "Disable". Installing from the store instead makes it stop.
 
-### Firefox
+### Step 2b — Firefox
 
 1. Type `about:debugging#/runtime/this-firefox` into the address bar and
    press Enter.
@@ -76,19 +114,17 @@ properly.
    **`manifest.json`** (in Firefox you pick the file, not the folder).
 4. It appears in the list. Done.
 
-**Important Firefox limitation:** Firefox unloads it when you close the
-browser. You'll need to repeat these three steps at the start of each
-session. Annoying, and not something we can fix — Firefox requires official
-signing for permanent installs, which comes later. You need **Firefox 140 or
-newer** (Menu → Help → About Firefox to check).
-
-### Safari
-
-Not supported. Safari needs a completely different packaging process.
+**Firefox unloads it when you close the browser**, so you'll need to repeat
+these three steps at the start of each session. That's a limitation of
+loading an add-on by hand — Firefox requires Mozilla's signature for a
+permanent install, which is exactly what the store listing provides. You need
+**Firefox 140 or newer**.
 
 ---
 
-## Step 3 — Open your game
+## Open your game
+
+However you installed it:
 
 1. Open (or reload) your Roll20 game.
 2. Look at the **right-hand edge of the screen**, around a third of the way
@@ -112,14 +148,19 @@ within a second or two — and appear for everyone else too.
 
 ---
 
-## Updating to a newer version
+## Updating
+
+**Installed from a store:** nothing to do. Your browser updates it in the
+background, usually within a day of a new version going up.
+
+**Installed from source:** you update it by hand.
 
 1. Download and unzip the new ZIP as in Step 1.
 2. Replace your old folder with the new one (or put the new one somewhere
    and remember the new location).
 3. **Chrome:** go to `chrome://extensions` and click the circular **↻**
    arrow on the Party Tools card. **Firefox:** just load it again as in
-   Step 2.
+   Step 2b.
 4. Reload your Roll20 tab.
 
 Check the version number at the top of the panel to confirm it changed.
@@ -146,6 +187,10 @@ every fifteen seconds and will fill in by itself once they have. Click
 **Everything looks frozen or out of date.**
 Reload the Roll20 page. The panel refreshes every few seconds, but a page
 that's been open for hours can drift.
+
+**It vanished when I restarted Firefox.**
+Expected, if you loaded it by hand — see Step 2b. The store version stays
+put.
 
 **Something's genuinely broken.**
 Click the **🐞** button at the top of the panel. It opens a pre-filled bug

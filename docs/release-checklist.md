@@ -35,17 +35,15 @@ they disagree:
 `extension/src/storage.js`, and does **not** move with the display version.
 Bumping to 1.0.0 will not invalidate anybody's existing inventory.)
 
-### A licence
+### A licence — **done**
 
-**The repository has no `LICENSE` file.** This matters more than it looks:
+`LICENSE` is now in the repository: **MIT**. Use that name in the AMO
+licence field, and leave it alone otherwise.
 
-- AMO asks you to choose a licence during submission and will show it on the
-  listing.
-- `INSTALL.md` tells people to download and run the source. Without a
-  licence, strictly speaking nobody has permission to.
-
-MIT is the conventional choice for something like this and takes one file.
-Pick something, commit it, and use the same name in the AMO field.
+One thing to check before the listing goes public: the copyright line reads
+`Copyright (c) 2026 drsmith18` — the GitHub handle, because that is the only
+name this repository knows. Substitute your real name if you would rather
+the licence carry it.
 
 ---
 
@@ -230,14 +228,15 @@ Only after **§2b is green**.
 
 ## 5. After both are live
 
-- [ ] Rewrite `INSTALL.md` around "click Add to Chrome" / "click Add to
-      Firefox", and demote the load-unpacked instructions to a section for
-      people who want to run from source. The current file is written
-      entirely around manual installation, including the Firefox warning
-      that it must be reloaded every session — which stops being true the
-      moment AMO signs it.
-- [ ] Update the README status line and the "Not in the browser add-on
-      stores yet" claim, and add both store links.
+- [ ] Paste the two store URLs into `INSTALL.md`. The restructuring is
+      already done — "Install from the store" is the lead section with
+      *(Link to follow.)* in place of each URL, load-unpacked has been
+      demoted to "Install from source", and the Firefox "unloads every
+      session" warning is now scoped to that route only. Search the file for
+      `Link to follow` and for the `Where things stand` block at the top,
+      which should change from "being submitted" to "available".
+- [ ] Update the README status line and drop the "until those listings are
+      live" wording, adding both store links.
 - [ ] Tag the release in git and attach the zip to a GitHub release, so the
       exact reviewed artefact stays recoverable.
 - [ ] Tell the table.
