@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Party Tools — store screenshot cropper</title>
+<style>
+  :root {
+    --ground: #17142a; --surface: #201b38; --surface-2: #2a2447;
+    --ink: #ece8f5; --muted: #948dab; --line: #362f56;
+    --gold: #e8cf85; --danger: #ee89a7; --done: #8fc9a3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font: 400 15px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+  }
+  header { padding: 20px 24px 14px; border-bottom: 1px solid var(--line); }
+  h1 { margin: 0 0 4px; font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+  header p { margin: 0; color: var(--muted); font-size: 13.5px; max-width: 78ch; }
+  header b { color: var(--gold); font-weight: 600; }
+
+  .bar {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    padding: 12px 24px; border-bottom: 1px solid var(--line); background: var(--surface);
+    position: sticky; top: 0; z-index: 5;
+  }
+  button, label.btn {
+    font: 500 13.5px/1 inherit; padding: 9px 13px; border-radius: 6px;
+    border: 1px solid var(--line); background: var(--surface-2); color: var(--ink);
+    cursor: pointer;
+  }
+  button:hover, label.btn:hover { border-color: var(--muted); }
+  button.primary { background: var(--gold); color: #241f38; border-color: var(--gold); font-weight: 600; }
+  button.on { background: var(--danger); color: #241f38; border-color: var(--danger); font-weight: 600; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  .sep { width: 1px; height: 24px; background: var(--line); }
+  .hint { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+  .hint b { color: var(--done); font-weight: 600; }
+  input[type=file] { display: none; }
+
+  #stage { padding: 20px 24px 60px; }
+  #drop {
+    border: 2px dashed var(--line); border-radius: 12px; padding: 64px 24px;
+    text-align: center; color: var(--muted); margin-top: 20px;
+  }
+  #drop.hot { border-color: var(--gold); color: var(--ink); }
+  #wrap { position: relative; display: inline-block; line-height: 0; }
+  canvas { max-width: 100%; border-radius: 6px; display: block; cursor: crosshair; }
+  #shots { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  #shots img {
+    height: 46px; border-radius: 4px; border: 2px solid transparent;
+    cursor: pointer; opacity: .55;
+  }
+  #shots img.sel { border-color: var(--gold); opacity: 1; }
+  ul.tips { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+  ul.tips li { margin: 3px 0; }
+  ul.tips code { background: var(--surface-2); padding: 1px 4px; border-radius: 3px; font-size: 12.5px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Store screenshot cropper — 1280 × 800</h1>
+  <p>Runs entirely in this page: nothing is uploaded and nothing leaves your computer.
+  Drop a screenshot in, position the box, black out anything private, export.
+  Every export is exactly <b>1280 × 800</b>, which is what the Chrome Web Store wants.</p>
+  <ul class="tips">
+    <li><b>Crop out the browser chrome</b> — your tab titles show the repo name and the game name, and the toolbar shows your profile picture.</li>
+    <li><b>Watch the bottom-left</b> — the "Join Voice &amp; Video / DR" tile is you.</li>
+    <li><b>Watch the right sidebar</b> — the "Invite Players" box holds this campaign's join link.</li>
+  </ul>
+</header>
+
+<div class="bar">
+  <label class="btn" for="file">Choose images…</label>
+  <input id="file" type="file" accept="image/*" multiple>
+  <div class="sep"></div>
+  <button id="redact">Black-out tool: off</button>
+  <button id="undo">Undo box</button>
+  <button id="clear">Clear boxes</button>
+  <div class="sep"></div>
+  <button id="fit">Reset crop</button>
+  <button id="export" class="primary">Export 1280×800 PNG</button>
+  <span class="hint" id="status">No image loaded</span>
+</div>
+
+<div id="stage">
+  <div id="shots"></div>
+  <div id="wrap"><canvas id="cv"></canvas></div>
+  <div id="drop">Drop screenshots here, or paste with Ctrl/Cmd-V</div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var OUT_W = 1280, OUT_H = 800, AR = OUT_W / OUT_H;
+
+  var cv = document.getElementById("cv");
+  var ctx = cv.getContext("2d");
+  var statusEl = document.getElementById("status");
+  var dropEl = document.getElementById("drop");
+  var shotsEl = document.getElementById("shots");
+  var redactBtn = document.getElementById("redact");
+
+  var shots = [];        // {img, name, crop, boxes}
+  var cur = -1;
+  var scale = 1;         // display px per image px
+  var redactMode = false;
+  var drag = null;
+
+  function S() { return cur >= 0 ? shots[cur] : null; }
+
+  // ---- loading ------------------------------------------------------------
+  function addFiles(files) {
+    Array.prototype.forEach.call(files, function (f) {
+      if (!f.type || f.type.indexOf("image/") !== 0) return;
+      var img = new Image();
+      img.onload = function () {
+        shots.push({ img: img, name: (f.name || "screenshot").replace(/\.[^.]+$/, ""), crop: null, boxes: [] });
+        fitCrop(shots[shots.length - 1]);
+        renderStrip();
+        if (cur < 0) select(0);
+      };
+      img.src = URL.createObjectURL(f);
+    });
+  }
+
+  // Default crop: the largest 1280x800-shaped box that fits, nudged down past
+  // the browser chrome, which is where the tab titles and profile picture are.
+  function fitCrop(s) {
+    var iw = s.img.naturalWidth, ih = s.img.naturalHeight;
+    var w = iw, h = w / AR;
+    if (h > ih) { h = ih; w = h * AR; }
+    var chrome = Math.min(ih * 0.06, ih - h);   // ~ tab bar + address bar
+    s.crop = { x: (iw - w) / 2, y: Math.max(0, Math.min(chrome, ih - h)), w: w, h: h };
+  }
+
+  function select(i) {
+    cur = i;
+    var s = S();
+    scale = Math.min(1, (window.innerWidth - 80) / s.img.naturalWidth);
+    cv.width = Math.round(s.img.naturalWidth * scale);
+    cv.height = Math.round(s.img.naturalHeight * scale);
+    renderStrip();
+    draw();
+  }
+
+  function renderStrip() {
+    shotsEl.innerHTML = "";
+    shots.forEach(function (s, i) {
+      var t = document.createElement("img");
+      t.src = s.img.src;
+      if (i === cur) t.className = "sel";
+      t.title = s.name;
+      t.onclick = function () { select(i); };
+      shotsEl.appendChild(t);
+    });
+  }
+
+  // ---- drawing ------------------------------------------------------------
+  function draw() {
+    var s = S();
+    if (!s) { dropEl.style.display = ""; return; }
+    dropEl.style.display = "none";
+
+    ctx.clearRect(0, 0, cv.width, cv.height);
+    ctx.drawImage(s.img, 0, 0, cv.width, cv.height);
+
+    var c = s.crop;
+    var x = c.x * scale, y = c.y * scale, w = c.w * scale, h = c.h * scale;
+
+    // Dim everything outside the crop so the exported frame is unmistakable.
+    ctx.fillStyle = "rgba(10,8,20,.72)";
+    ctx.fillRect(0, 0, cv.width, y);
+    ctx.fillRect(0, y + h, cv.width, cv.height - y - h);
+    ctx.fillRect(0, y, x, h);
+    ctx.fillRect(x + w, y, cv.width - x - w, h);
+
+    // Black-out boxes are drawn solid: what you see is what exports.
+    ctx.fillStyle = "#000";
+    s.boxes.forEach(function (b) {
+      ctx.fillRect(b.x * scale, b.y * scale, b.w * scale, b.h * scale);
+    });
+
+    ctx.strokeStyle = "#e8cf85";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+
+    // Corner handle, bottom-right only — resizing keeps the 16:10 ratio.
+    ctx.fillStyle = "#e8cf85";
+    ctx.fillRect(x + w - 14, y + h - 14, 14, 14);
+
+    statusEl.innerHTML = s.img.naturalWidth + "×" + s.img.naturalHeight +
+      " source · crop <b>" + Math.round(c.w) + "×" + Math.round(c.h) + "</b>" +
+      (c.w < OUT_W ? " (upscaled on export)" : "") +
+      " · " + s.boxes.length + " black-out box(es)";
+  }
+
+  // ---- interaction --------------------------------------------------------
+  function pt(e) {
+    var r = cv.getBoundingClientRect();
+    return {
+      x: (e.clientX - r.left) * (cv.width / r.width) / scale,
+      y: (e.clientY - r.top) * (cv.height / r.height) / scale
+    };
+  }
+
+  cv.addEventListener("mousedown", function (e) {
+    var s = S(); if (!s) return;
+    var p = pt(e), c = s.crop;
+
+    if (redactMode) { drag = { mode: "box", ox: p.x, oy: p.y }; return; }
+
+    var onHandle = p.x > c.x + c.w - 18 / scale && p.y > c.y + c.h - 18 / scale &&
+                   p.x < c.x + c.w + 6 / scale && p.y < c.y + c.h + 6 / scale;
+    if (onHandle) drag = { mode: "resize" };
+    else if (p.x > c.x && p.x < c.x + c.w && p.y > c.y && p.y < c.y + c.h) {
+      drag = { mode: "move", dx: p.x - c.x, dy: p.y - c.y };
+    }
+  });
+
+  window.addEventListener("mousemove", function (e) {
+    var s = S(); if (!s || !drag) return;
+    var p = pt(e), c = s.crop;
+    var iw = s.img.naturalWidth, ih = s.img.naturalHeight;
+
+    if (drag.mode === "move") {
+      c.x = Math.max(0, Math.min(p.x - drag.dx, iw - c.w));
+      c.y = Math.max(0, Math.min(p.y - drag.dy, ih - c.h));
+    } else if (drag.mode === "resize") {
+      var w = Math.max(200, p.x - c.x);
+      var h = w / AR;
+      if (c.x + w > iw) { w = iw - c.x; h = w / AR; }
+      if (c.y + h > ih) { h = ih - c.y; w = h * AR; }
+      c.w = w; c.h = h;
+    } else if (drag.mode === "box") {
+      drag.cur = p;
+    }
+    draw();
+
+    if (drag.mode === "box" && drag.cur) {
+      ctx.fillStyle = "rgba(0,0,0,.75)";
+      ctx.fillRect(Math.min(drag.ox, p.x) * scale, Math.min(drag.oy, p.y) * scale,
+                   Math.abs(p.x - drag.ox) * scale, Math.abs(p.y - drag.oy) * scale);
+    }
+  });
+
+  window.addEventListener("mouseup", function (e) {
+    var s = S();
+    if (s && drag && drag.mode === "box") {
+      var p = pt(e);
+      var w = Math.abs(p.x - drag.ox), h = Math.abs(p.y - drag.oy);
+      if (w > 4 && h > 4) {
+        s.boxes.push({ x: Math.min(drag.ox, p.x), y: Math.min(drag.oy, p.y), w: w, h: h });
+      }
+    }
+    drag = null;
+    draw();
+  });
+
+  // ---- export -------------------------------------------------------------
+  document.getElementById("export").addEventListener("click", function () {
+    var s = S(); if (!s) return;
+    var c = s.crop;
+    var out = document.createElement("canvas");
+    out.width = OUT_W; out.height = OUT_H;
+    var o = out.getContext("2d");
+    o.imageSmoothingQuality = "high";
+    o.drawImage(s.img, c.x, c.y, c.w, c.h, 0, 0, OUT_W, OUT_H);
+
+    // Black-out boxes are baked in, in crop-relative coordinates. Baking beats
+    // overlaying: there is no version of the file that still has the pixels.
+    var k = OUT_W / c.w;
+    o.fillStyle = "#000";
+    s.boxes.forEach(function (b) {
+      o.fillRect((b.x - c.x) * k, (b.y - c.y) * k, b.w * k, b.h * k);
+    });
+
+    out.toBlob(function (blob) {
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = s.name + "-1280x800.png";
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+    }, "image/png");
+  });
+
+  redactBtn.addEventListener("click", function () {
+    redactMode = !redactMode;
+    redactBtn.textContent = "Black-out tool: " + (redactMode ? "ON — drag over anything private" : "off");
+    redactBtn.className = redactMode ? "on" : "";
+  });
+  document.getElementById("undo").addEventListener("click", function () {
+    var s = S(); if (s) { s.boxes.pop(); draw(); }
+  });
+  document.getElementById("clear").addEventListener("click", function () {
+    var s = S(); if (s) { s.boxes = []; draw(); }
+  });
+  document.getElementById("fit").addEventListener("click", function () {
+    var s = S(); if (s) { fitCrop(s); draw(); }
+  });
+
+  document.getElementById("file").addEventListener("change", function (e) { addFiles(e.target.files); });
+  window.addEventListener("dragover", function (e) { e.preventDefault(); dropEl.classList.add("hot"); });
+  window.addEventListener("dragleave", function () { dropEl.classList.remove("hot"); });
+  window.addEventListener("drop", function (e) {
+    e.preventDefault(); dropEl.classList.remove("hot");
+    addFiles(e.dataTransfer.files);
+  });
+  window.addEventListener("paste", function (e) {
+    if (e.clipboardData && e.clipboardData.files.length) addFiles(e.clipboardData.files);
+  });
+  window.addEventListener("resize", function () { if (S()) select(cur); });
+})();
+</script>
+</body>
+</html>
