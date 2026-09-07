@@ -216,7 +216,11 @@ that is in your folder but not in the zip:
 - [ ] Privacy tab: single purpose, host-permission justification, "no
       remote code", and the data-usage answers — all written out in
       `docs/store-listing.md` §4.
-- [ ] Privacy policy URL: the raw GitHub link to `PRIVACY.md`.
+- [ ] Privacy policy URL:
+      `https://github.com/drsmith18/roll20-inventory-quest-tracker/blob/main/PRIVACY.md`
+      — the rendered GitHub page, not the `raw.githubusercontent.com` one. Both
+      resolve, but raw serves `text/plain`, so a reviewer or a user gets a wall
+      of unstyled Markdown. The blob URL is a readable page.
 - [ ] Paste the reviewer note from `docs/store-listing.md` §6. **Do not skip
       this** — a reviewer who cannot get past Roll20's login sees an
       extension that does nothing.
