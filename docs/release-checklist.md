@@ -56,7 +56,7 @@ npm run release:check
 
 That runs, in order:
 
-1. **`npm test`** — 276 checks across three suites, booting the real
+1. **`npm test`** — 289 checks across three suites, booting the real
    extension files inside jsdom against a stubbed Roll20 campaign.
 2. **`npm run lint`** — `web-ext lint`, the same validator addons.mozilla.org
    runs on submission. **Must be 0 errors.** One warning is expected and

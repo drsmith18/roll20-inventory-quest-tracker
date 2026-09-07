@@ -46,7 +46,10 @@
     "#pt-panel{position:fixed;z-index:99991;width:440px;height:62vh;min-width:340px;min-height:280px;max-width:92vw;max-height:92vh;resize:both;overflow:hidden;display:flex;flex-direction:column;background:var(--pt-bg);color:var(--pt-text);border:1px solid var(--pt-edge2);border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,.6);font:13px/1.5 Arial,Helvetica,sans-serif}",
     "#pt-panel *{box-sizing:border-box}",
     ".pt-head{display:flex;align-items:center;gap:8px;padding:9px 12px;background:#17181c;border-bottom:1px solid var(--pt-edge);border-radius:6px 6px 0 0;cursor:move;user-select:none}",
-    ".pt-head .pt-title{font-weight:bold;flex:1;font-size:14px}",
+    ".pt-head .pt-title{font-weight:bold;flex:1;font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+    // Quiet enough not to compete with the title, present enough to read off
+    // when someone asks "what version are you on?".
+    ".pt-head .pt-ver{font-weight:normal;font-size:10.5px;color:var(--pt-dim);margin-left:6px;letter-spacing:.2px}",
     ".pt-iconbtn{background:none;border:none;color:var(--pt-dim);cursor:pointer;font-size:15px;padding:3px 7px;border-radius:4px;line-height:1}",
     ".pt-iconbtn:hover{background:var(--pt-bg3);color:var(--pt-text)}",
     ".pt-tabs{display:flex;border-bottom:1px solid var(--pt-edge);background:var(--pt-bg)}",
@@ -1083,12 +1086,13 @@
       var titleBits = [];
       if (it.itemType) titleBits.push(it.itemType);
       if (it.rarity) titleBits.push(it.rarity);
-      if (it.cost) titleBits.push(it.cost);
+      var costText = PT.costLabel(it.cost);
+      if (costText) titleBits.push(costText);
       if (it.weight != null) titleBits.push(it.weight + " lb");
       if (it.description) titleBits.push("— " + it.description);
       titleBits.push("(added by " + (it.addedBy || "?") + ")");
       var metaBits = [];
-      if (it.cost) metaBits.push(it.cost);
+      if (costText) metaBits.push(costText);
       if (it.weight != null && it.weight !== "") metaBits.push(it.weight + " lb");
       // Note titleBits/metaBits above are built only from fields that still
       // exist on `it` — obscureItem deletes description/cost/weight/rarity/
@@ -1569,6 +1573,11 @@
       '<rect x="2" y="7.8" width="12" height="6" rx="1" fill="#a8834c"/>' +
       '<rect x="6.9" y="5.6" width="2.2" height="4.2" rx=".5" fill="#6e5330"/></svg>';
     titleSpan.appendChild(document.createTextNode("Party Tools"));
+    // The version belongs where INSTALL.md sends people to look for it: at the
+    // top of the panel. It is how a player confirms an update actually took —
+    // the only way to tell, for anyone running from source — and it was only
+    // reachable from the ♥ tab, which the install guide never mentions.
+    titleSpan.appendChild(PT.el("span", { class: "pt-ver", text: "v" + PT.VERSION }));
     // Role badge: the extension's view of who you are, always visible. A
     // player testing in view-as mode looks identical to a real player, and
     // without this there is no way to tell why DM-only actions are missing.

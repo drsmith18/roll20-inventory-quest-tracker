@@ -119,7 +119,7 @@ npm test
 
 The tests boot the **real** extension inside jsdom against a stubbed Roll20
 campaign, so they exercise the shipped files rather than a copy of the logic.
-Three suites, 276 checks: `test/sheets.test.js` (character-sheet writes — the
+Three suites, 289 checks: `test/sheets.test.js` (character-sheet writes — the
 compendium weapon graph, taking items back off a sheet, who a player may
 split coins with), `test/storage-init.test.js` (the DM's first run, and a
 player who opens the panel before the DM has set the game up) and

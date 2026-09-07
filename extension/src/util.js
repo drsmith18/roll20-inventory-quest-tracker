@@ -60,6 +60,28 @@ window.PartyTools = window.PartyTools || {};
   // a bare number meaning gp, or missing/unparseable meaning 0) into copper,
   // for view-only value sorting (INV-26). Never throws; always returns a
   // number.
+  // The compendium is inconsistent about whether a cost carries its unit: a
+  // Longsword arrives as "15 GP", a Vorpal Longsword as a bare "200015". Left
+  // alone, one bag shows two conventions side by side. Normalise for display
+  // only — the stored value is untouched, and sorting still goes through
+  // costToCopper.
+  //
+  // Anything this can't confidently parse is returned verbatim rather than
+  // "corrected": a compendium entry reading "varies" or "5 gp per day" should
+  // show what it says, not a number this function invented.
+  PT.costLabel = function (cost) {
+    if (cost === undefined || cost === null) return "";
+    var s = String(cost).trim();
+    if (!s) return "";
+    var m = s.replace(/,/g, "").match(/^(\d+(?:\.\d+)?)\s*([a-zA-Z]*)$/);
+    if (!m) return s;
+    var num = parseFloat(m[1]);
+    if (isNaN(num)) return s;
+    var unit = (m[2] || "gp").toLowerCase();
+    if (!PT.COPPER_VALUE[unit]) return s; // a denomination we don't know
+    return num.toLocaleString("en-GB") + " " + unit;
+  };
+
   PT.costToCopper = function (cost) {
     if (cost === undefined || cost === null) return 0;
     var s = String(cost).trim();

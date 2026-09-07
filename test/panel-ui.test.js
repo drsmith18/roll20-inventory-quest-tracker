@@ -253,11 +253,52 @@ async function ineligibleCharactersSayWhy() {
   check("the item is still in the bag", /Lantern/.test(w.bodyText()), w.bodyText().slice(0, 200));
 }
 
+// The panel header is where INSTALL.md sends people to read the version —
+// twice: to check the extension is working, and to confirm an update took.
+// It lived only on the ♥ tab, so both instructions were unfollowable.
+async function headerShowsTheVersion() {
+  section("the version is on the panel header, where the install guide says:");
+  const w = await readyDM();
+  const ver = w.$(".pt-head .pt-ver");
+  check("the header carries a version", !!ver, w.$(".pt-head").textContent);
+  check("it is the shipped version",
+    ver.textContent === "v" + w.win.PartyTools.VERSION, ver.textContent);
+  check("the role badge is still there beside it", !!w.$(".pt-head .pt-rolebadge"));
+  check("the header controls all survived",
+    w.all(".pt-head .pt-iconbtn").length === 3,
+    w.all(".pt-head .pt-iconbtn").length + " icon buttons");
+}
+
+// The compendium is inconsistent about units: a Longsword resolves to "15 GP"
+// and a Vorpal Longsword to a bare "200015", so a bag showed two conventions
+// at once. costLabel normalises for display without inventing values.
+async function costsReadConsistently() {
+  section("item costs read the same way whatever the compendium sent:");
+  const w = await readyDM();
+  const PT = w.win.PartyTools;
+  check("a unit-carrying cost is tidied", PT.costLabel("15 GP") === "15 gp", PT.costLabel("15 GP"));
+  check("a bare number is assumed to be gold",
+    PT.costLabel("200015") === "200,015 gp", PT.costLabel("200015"));
+  check("large numbers get thousands separators",
+    /,/.test(PT.costLabel("200015")), PT.costLabel("200015"));
+  check("a non-gold denomination is preserved", PT.costLabel("5 sp") === "5 sp", PT.costLabel("5 sp"));
+  check("a fractional cost survives", PT.costLabel("1.5 gp") === "1.5 gp", PT.costLabel("1.5 gp"));
+  check("prose is shown verbatim, not turned into a number",
+    PT.costLabel("varies") === "varies", PT.costLabel("varies"));
+  check("an unknown denomination is left alone",
+    PT.costLabel("300 zz") === "300 zz", PT.costLabel("300 zz"));
+  check("nothing in, nothing out", PT.costLabel(null) === "" && PT.costLabel("") === "");
+  check("sorting still reads the raw value",
+    PT.costToCopper("200015") === 20001500, PT.costToCopper("200015"));
+}
+
 (async () => {
   await hiddenBagHeader();
   await addingSeveralItems();
   await depositTellsYouToReopen();
   await characterPickersScroll();
   await ineligibleCharactersSayWhy();
+  await headerShowsTheVersion();
+  await costsReadConsistently();
   report("panel-ui");
 })();
