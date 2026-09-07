@@ -76,6 +76,22 @@ That runs, in order:
 The same three run in CI on every push (`.github/workflows/ci.yml`), and the
 packaged zip is attached to the run as an artifact.
 
+> **Upload `dist/party-tools-<version>.zip`, and nothing else.** Not GitHub's
+> green *Code → Download ZIP*. That produces
+> `roll20-inventory-quest-tracker-main.zip`, which wraps the whole repository
+> — `docs/`, `spikes/`, `test/`, `package.json` — in a top-level folder, with
+> `manifest.json` buried two levels down. Both stores reject it, Chrome with
+> a wall of "Files outside directory with manifest … are not allowed".
+>
+> A valid package has **`manifest.json` at the very top**, with only `src/`
+> and `icons/` beside it — 13 files. Check before uploading:
+>
+> ```
+> unzip -l dist/party-tools-<version>.zip
+> ```
+>
+> Upload the `.zip` itself; do not unzip it first.
+
 **What a green run does not prove.** The test stubs are built from
 `docs/roll20-spike-findings.md`. Green means the logic is right *given those
 shapes*; it does not mean Roll20 still has those shapes. Only section 2 can
@@ -191,7 +207,8 @@ that is in your folder but not in the zip:
 
 **Per submission**
 
-- [ ] Upload `dist/party-tools-<version>.zip`.
+- [ ] Upload `dist/party-tools-<version>.zip` — the built package, **not** a
+      GitHub *Download ZIP* (see the warning in §1).
 - [ ] Fill in the listing from `docs/store-listing.md` §2 and §3.
 - [ ] Category **Workflow & Planning**, language **English (UK)**.
 - [ ] Upload at least one 1280×800 screenshot (`docs/store-listing.md` §7 —
@@ -216,7 +233,7 @@ submission rather than after it.
 - [ ] Create an account at <https://addons.mozilla.org/developers/> — free,
       no fee.
 - [ ] Submit a **new add-on**, **listed on this site**, upload the same
-      `dist/party-tools-<version>.zip`.
+      `dist/party-tools-<version>.zip` — again, not a GitHub *Download ZIP*.
 - [ ] The validator runs on upload. It should report 0 errors; you have
       already seen its output from `npm run lint`.
 - [ ] Source code: answer **no**. Nothing is minified, bundled or
