@@ -14,7 +14,7 @@ in six months does not mean rewriting all of this from memory.
 | Field | Value |
 |---|---|
 | Extension name | Party Tools for Roll20 |
-| Version | 0.9.20 (see *Version number* in `docs/release-checklist.md` before submitting) |
+| Version | 1.0.0 |
 | Homepage | `https://github.com/drsmith18/roll20-inventory-quest-tracker` |
 | Support / issues | `https://github.com/drsmith18/roll20-inventory-quest-tracker/issues` |
 | Privacy policy | `https://github.com/drsmith18/roll20-inventory-quest-tracker/blob/main/PRIVACY.md` |

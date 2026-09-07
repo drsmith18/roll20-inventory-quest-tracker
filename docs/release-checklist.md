@@ -14,16 +14,22 @@ is public.
 
 ### Version number
 
-The tree is at **0.9.20**, and the README calls the project "v0.9 beta". A
-store listing does not have to say 1.0 — plenty of good extensions ship at
-0.x, and the store shows the number. The honest position is:
+**Settled: 1.0.0.** The tree shipped its store debut at 1.0.0 rather than
+0.9.x, on the grounds below. Kept here because the same question returns at
+every release.
 
-- **Ship as 0.9.x** if the Firefox path is still unproven and the beta label
-  is doing real work setting expectations.
-- **Bump to 1.0.0** only once section 2 below is green on both browsers, and
-  update the README's status line in the same commit. Do not bump it to look
-  more finished than it is; the first one-star review for a bug the label
-  would have excused is expensive.
+Section 2 is now green on **both** browsers, which was the condition set for
+this decision, so the argument for staying on 0.9.x has largely gone:
+
+- **Bump to 1.0.0** if you are willing to call the inventory finished. It is
+  feature-complete, tested on both browsers, and the store shows the number
+  to every visitor — 0.9.x reads as "not ready yet" to someone deciding
+  whether to install.
+- **Stay on 0.9.x** only if you want the beta label to keep setting
+  expectations through the first wave of real users, on the grounds that the
+  table testing it has been small.
+
+Either way, update the README's status line in the same commit.
 
 The version lives in **two** places and `npm run build` refuses to package if
 they disagree:
@@ -120,23 +126,27 @@ profile and at the same time:
       the explanatory message, and the panel fills itself in within about
       fifteen seconds of the DM setting it up — without a reload.
 
-### 2b. Firefox — **unproven, and the biggest risk in this release**
+### 2b. Firefox — **verified, 7 Sep 2026**
 
-The README is straight about this: Firefox "is supported by the manifest but
-not yet verified in real play". Nothing has changed that. **Do not submit to
-addons.mozilla.org until this section is green**, or the first thing that
-happens is a public one-star review from someone whose panel never appeared.
+This was the biggest unknown in the release and it is now closed: Party
+Tools has been run in a real game in Firefox, and the three places the two
+browsers were most likely to diverge all behave.
+
+Re-run this section on any release that touches `drops.js`, `env.js`, or the
+manifest's `content_scripts` block — those are what the Firefox-specific
+risks hang off.
 
 ```
 npm run start:firefox
 ```
 
 (or load `extension/manifest.json` by hand at
-`about:debugging#/runtime/this-firefox` → Load Temporary Add-on)
+`about:debugging#/runtime/this-firefox` → Load Temporary Add-on. That route
+needs no Node install; the panel goes away when Firefox closes, which is a
+property of Load Temporary Add-on and not of Firefox.)
 
-Then work through the **whole** of section 2a again in Firefox. Pay
-particular attention to the three places where Firefox is most likely to
-diverge from Chrome:
+Then work through the **whole** of section 2a again in Firefox, paying
+particular attention to:
 
 - [ ] **The `world: "MAIN"` content script actually runs.** Everything
       depends on reaching Roll20's in-page `window.Campaign` objects. If the
@@ -151,13 +161,8 @@ diverge from Chrome:
       `credentials: "same-origin"`. Confirm items still resolve to full
       details rather than falling back to name-only.
 
-Also confirm the extension loads at all on the declared minimum, **Firefox
-140**, not just on current Firefox.
-
-If Firefox turns out to be broken and the fix is not quick: **ship to Chrome
-first and hold the Firefox submission.** A working Chrome listing beats two
-half-working ones, and nothing about submitting to Chrome first makes the
-AMO submission harder later.
+Also confirm the extension loads on the declared minimum, **Firefox 140**,
+not just on current Firefox.
 
 ### 2c. Package-level sanity
 
@@ -205,7 +210,8 @@ that is in your folder but not in the zip:
 
 ## 4. addons.mozilla.org
 
-Only after **§2b is green**.
+§2b is green, so this is no longer gated — it can run alongside the Chrome
+submission rather than after it.
 
 - [ ] Create an account at <https://addons.mozilla.org/developers/> — free,
       no fee.

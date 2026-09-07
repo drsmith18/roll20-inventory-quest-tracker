@@ -6,8 +6,8 @@ who-did-what activity log. A DM-controlled quest tracker is planned next.
 All data is stored *inside* the Roll20 campaign itself (as journal
 handouts), so there is no external server, no accounts, and nothing to host.
 
-**Status: v0.9 beta — the inventory is feature-complete and in testing at
-the author's own table.** Being submitted to the Chrome Web Store and
+**Status: v1.0 — the inventory is feature-complete and verified in real play
+on both Chrome and Firefox.** Being submitted to the Chrome Web Store and
 Firefox Add-ons; until those listings are live it installs by hand. See
 [docs/release-checklist.md](docs/release-checklist.md) for where that
 stands.
@@ -83,10 +83,11 @@ account? Tell your DM and they can file it:
   by hand — that *is* the party's inventory.
 - Works on Roll20's **Jumpgate** engine. Games on the old Legacy engine get
   a polite "not supported" note.
-- Chrome (and Edge/Brave) is the tested browser. Firefox 140+ is supported
-  by the manifest but not yet verified in real play — see INSTALL.md. (The
-  floor is 140 rather than 128 because of the data-collection declaration
-  Firefox now requires; see `docs/release-checklist.md`.)
+- Tested in real play on **both** Chrome (and Edge/Brave) and **Firefox
+  140+**, including the compendium drag-and-drop, which is where the two
+  browsers were most likely to diverge. (The Firefox floor is 140 rather
+  than 128 because of the data-collection declaration Firefox now requires;
+  see `docs/release-checklist.md`.)
 - **Trust model:** hidden bags are genuinely hidden (server-enforced), but
   the tool doesn't try to stop a determined cheat editing *visible* shared
   data — same as the table itself, it runs on trust.
