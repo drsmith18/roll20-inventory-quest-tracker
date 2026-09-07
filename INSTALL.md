@@ -79,7 +79,7 @@ properly.
 **Important Firefox limitation:** Firefox unloads it when you close the
 browser. You'll need to repeat these three steps at the start of each
 session. Annoying, and not something we can fix — Firefox requires official
-signing for permanent installs, which comes later. You need **Firefox 128 or
+signing for permanent installs, which comes later. You need **Firefox 140 or
 newer** (Menu → Help → About Firefox to check).
 
 ### Safari

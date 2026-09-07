@@ -1,0 +1,251 @@
+# Release checklist — getting Party Tools into the two add-on stores
+
+The order matters. The automated checks are quick and catch the dull
+rejections; the manual gate is slow and catches the ones that matter. Do not
+skip to the submission section — a rejected submission costs days, and both
+stores review a *resubmission* from the back of the queue.
+
+---
+
+## 0. Decide two things first
+
+Both are one-line changes, but both are awkward to change after the listing
+is public.
+
+### Version number
+
+The tree is at **0.9.20**, and the README calls the project "v0.9 beta". A
+store listing does not have to say 1.0 — plenty of good extensions ship at
+0.x, and the store shows the number. The honest position is:
+
+- **Ship as 0.9.x** if the Firefox path is still unproven and the beta label
+  is doing real work setting expectations.
+- **Bump to 1.0.0** only once section 2 below is green on both browsers, and
+  update the README's status line in the same commit. Do not bump it to look
+  more finished than it is; the first one-star review for a bug the label
+  would have excused is expensive.
+
+The version lives in **two** places and `npm run build` refuses to package if
+they disagree:
+
+- `extension/manifest.json` → `version`
+- `extension/src/util.js` → `PT.VERSION`
+
+(The stored-data schema is a separate constant, `SCHEMA` in
+`extension/src/storage.js`, and does **not** move with the display version.
+Bumping to 1.0.0 will not invalidate anybody's existing inventory.)
+
+### A licence
+
+**The repository has no `LICENSE` file.** This matters more than it looks:
+
+- AMO asks you to choose a licence during submission and will show it on the
+  listing.
+- `INSTALL.md` tells people to download and run the source. Without a
+  licence, strictly speaking nobody has permission to.
+
+MIT is the conventional choice for something like this and takes one file.
+Pick something, commit it, and use the same name in the AMO field.
+
+---
+
+## 1. The automated gate — a couple of minutes
+
+```
+npm install
+npm run release:check
+```
+
+That runs, in order:
+
+1. **`npm test`** — 276 checks across three suites, booting the real
+   extension files inside jsdom against a stubbed Roll20 campaign.
+2. **`npm run lint`** — `web-ext lint`, the same validator addons.mozilla.org
+   runs on submission. **Must be 0 errors.** One warning is expected and
+   fine: `data_collection_permissions` needs Firefox for Android 142, and
+   this is a desktop-only add-on that does not claim Android support.
+3. **`npm run build`** — writes `dist/party-tools-<version>.zip`, and refuses
+   to if the two version strings disagree, a manifest-referenced file is
+   missing, a store string is over length, or `eval`/`new Function` has
+   appeared in the source.
+
+The same three run in CI on every push (`.github/workflows/ci.yml`), and the
+packaged zip is attached to the run as an artifact.
+
+**What a green run does not prove.** The test stubs are built from
+`docs/roll20-spike-findings.md`. Green means the logic is right *given those
+shapes*; it does not mean Roll20 still has those shapes. Only section 2 can
+tell you that.
+
+---
+
+## 2. The manual gate — the one that actually decides
+
+Do this in the **dedicated test game with the dedicated second account**,
+never in a live campaign. Budget an evening, not ten minutes.
+
+### 2a. Chrome — the tested path
+
+Load `extension/` unpacked at `chrome://extensions` (Developer mode on →
+Load unpacked). Then, as the DM:
+
+- [ ] Panel opens from the chest tab; the header shows the right version and
+      a **DM** badge.
+- [ ] First run in a fresh game creates the storage and a *Party Loot* bag.
+- [ ] Drag a compendium item onto a bag — name, description, weight, cost
+      and rarity all arrive.
+- [ ] Add a manual homebrew item.
+- [ ] Change a quantity; move an item between bags; delete an item.
+- [ ] Add and remove coins with a reason; check the purse log.
+- [ ] Split coins: the preview maths is right, the remainder stays put, and
+      shares land against the right characters.
+- [ ] Claim an item to a character sheet, then put it back into a bag. A
+      compendium **weapon** must survive the round trip with its attack and
+      damage records intact — this is the fragile one. Verify against a real
+      drop with `PT.sheets.explainGraph()` (snippet (a2) in
+      `extension/src/sheets.js`) rather than trusting the reconstructed
+      payload in the tests.
+- [ ] Create a hidden bag; confirm from the player account that its contents
+      genuinely do not arrive.
+- [ ] Obscure an item (shift-drop from the compendium), then reveal it.
+- [ ] Search across bags; sort within a bag; rename a bag.
+- [ ] Activity log shows every one of the above with the right name and time.
+- [ ] The 🐞 button opens a GitHub issue with the diagnostics filled in.
+
+Then, with the **second account joined as a player**, in a second browser
+profile and at the same time:
+
+- [ ] Changes made by the DM appear for the player within a second or two,
+      and vice versa.
+- [ ] The player sees no hidden bag and no obscured item's true name.
+- [ ] A player opening the panel in a game the DM has *not* yet set up gets
+      the explanatory message, and the panel fills itself in within about
+      fifteen seconds of the DM setting it up — without a reload.
+
+### 2b. Firefox — **unproven, and the biggest risk in this release**
+
+The README is straight about this: Firefox "is supported by the manifest but
+not yet verified in real play". Nothing has changed that. **Do not submit to
+addons.mozilla.org until this section is green**, or the first thing that
+happens is a public one-star review from someone whose panel never appeared.
+
+```
+npm run start:firefox
+```
+
+(or load `extension/manifest.json` by hand at
+`about:debugging#/runtime/this-firefox` → Load Temporary Add-on)
+
+Then work through the **whole** of section 2a again in Firefox. Pay
+particular attention to the three places where Firefox is most likely to
+diverge from Chrome:
+
+- [ ] **The `world: "MAIN"` content script actually runs.** Everything
+      depends on reaching Roll20's in-page `window.Campaign` objects. If the
+      panel never appears at all, this is why. Firefox has supported
+      MAIN-world content scripts since 128, but "supported" and "behaves
+      identically" are different claims.
+- [ ] **The compendium drag-and-drop.** It hangs off Roll20's jQuery UI
+      `droppable`, and drag-and-drop is the classic cross-browser
+      difference. If drops silently do nothing, check the console for
+      "jQuery UI droppable not found".
+- [ ] **The compendium `fetch`** in `src/drops.js` uses
+      `credentials: "same-origin"`. Confirm items still resolve to full
+      details rather than falling back to name-only.
+
+Also confirm the extension loads at all on the declared minimum, **Firefox
+140**, not just on current Firefox.
+
+If Firefox turns out to be broken and the fix is not quick: **ship to Chrome
+first and hold the Firefox submission.** A working Chrome listing beats two
+half-working ones, and nothing about submitting to Chrome first makes the
+AMO submission harder later.
+
+### 2c. Package-level sanity
+
+Install from the built artefact, not the working tree — this catches a file
+that is in your folder but not in the zip:
+
+- [ ] `npm run build`, unzip `dist/party-tools-<version>.zip` somewhere
+      fresh, load *that* folder unpacked in Chrome, and re-check that the
+      panel opens and a bag loads.
+
+---
+
+## 3. Chrome Web Store
+
+**One-time setup**
+
+- [ ] Register a developer account and pay the **one-off US$5** fee at
+      <https://chrome.google.com/webstore/devconsole>. There is no annual
+      renewal and no per-extension charge.
+- [ ] Verify the developer email address.
+- [ ] Set the publisher name shown under the extension title.
+- [ ] Answer the **trader / non-trader** declaration. For a free hobby
+      project with no business behind it, **non-trader** is correct. Traders
+      must publish a legal name, address and phone number on the listing;
+      non-traders do not. Revisit only if the extension ever charges money.
+
+**Per submission**
+
+- [ ] Upload `dist/party-tools-<version>.zip`.
+- [ ] Fill in the listing from `docs/store-listing.md` §2 and §3.
+- [ ] Category **Workflow & Planning**, language **English (UK)**.
+- [ ] Upload at least one 1280×800 screenshot (`docs/store-listing.md` §7 —
+      check every shot for real names, avatars and campaign titles first).
+- [ ] Privacy tab: single purpose, host-permission justification, "no
+      remote code", and the data-usage answers — all written out in
+      `docs/store-listing.md` §4.
+- [ ] Privacy policy URL: the raw GitHub link to `PRIVACY.md`.
+- [ ] Paste the reviewer note from `docs/store-listing.md` §6. **Do not skip
+      this** — a reviewer who cannot get past Roll20's login sees an
+      extension that does nothing.
+- [ ] Submit. Review is typically a few days, occasionally longer for a
+      first submission from a new account.
+
+---
+
+## 4. addons.mozilla.org
+
+Only after **§2b is green**.
+
+- [ ] Create an account at <https://addons.mozilla.org/developers/> — free,
+      no fee.
+- [ ] Submit a **new add-on**, **listed on this site**, upload the same
+      `dist/party-tools-<version>.zip`.
+- [ ] The validator runs on upload. It should report 0 errors; you have
+      already seen its output from `npm run lint`.
+- [ ] Source code: answer **no**. Nothing is minified, bundled or
+      generated — the package is the source.
+- [ ] Choose the licence decided in §0.
+- [ ] Listing copy from `docs/store-listing.md` §2 and §3, category **Games &
+      Entertainment**.
+- [ ] Screenshots — reuse the Chrome set.
+- [ ] Paste the same reviewer note (§6).
+- [ ] Submit. AMO signs the add-on as part of review; that signature is what
+      makes it permanently installable, which is the thing Firefox users
+      currently cannot have.
+
+---
+
+## 5. After both are live
+
+- [ ] Rewrite `INSTALL.md` around "click Add to Chrome" / "click Add to
+      Firefox", and demote the load-unpacked instructions to a section for
+      people who want to run from source. The current file is written
+      entirely around manual installation, including the Firefox warning
+      that it must be reloaded every session — which stops being true the
+      moment AMO signs it.
+- [ ] Update the README status line and the "Not in the browser add-on
+      stores yet" claim, and add both store links.
+- [ ] Tag the release in git and attach the zip to a GitHub release, so the
+      exact reviewed artefact stays recoverable.
+- [ ] Tell the table.
+
+## Updating later
+
+Each subsequent release is: bump both version strings → `npm run
+release:check` → work section 2 → upload the new zip to both dashboards.
+Chrome re-reviews updates (usually faster than a first submission); AMO
+re-signs. Neither lets you reuse a version number that has already been
+published, so a rejected upload needs the patch number bumped again.

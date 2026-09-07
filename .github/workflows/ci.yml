@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    name: Tests, add-on lint and package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dev dependencies
+        run: npm install
+
+      # The suites deliberately wait on the same journal-settling delays the
+      # real thing uses, so they take a couple of minutes. That is the point.
+      - name: Run tests
+        run: npm test
+
+      # web-ext is the same validator addons.mozilla.org runs on submission.
+      # Catching a rejection here beats catching it in a review queue.
+      - name: Lint the extension (AMO validator)
+        run: npm run lint
+
+      # Also proves the version-sync and manifest checks in tools/build.mjs
+      # still pass, and that the package is well-formed.
+      - name: Package
+        run: npm run build
+
+      - name: Upload the packaged extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: party-tools-extension
+          path: dist/*.zip

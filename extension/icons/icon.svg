@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="Party Tools for Roll20">
+  <!-- Source artwork for the packaged PNG icons. Regenerate them with
+       `npm run icons` after editing this file. The chest matches the panel
+       launcher drawn inline in extension/src/ui.js — keep the two in step. -->
+  <rect width="128" height="128" rx="26" fill="#2b2545"/>
+  <path fill="#e8cf85" d="M22 58V52a28 28 0 0 1 28-28h28a28 28 0 0 1 28 28v6z"/>
+  <rect x="22" y="62" width="84" height="42" rx="6" fill="#a8834c"/>
+  <rect x="57" y="48" width="14" height="26" rx="3" fill="#5d4526"/>
+  <circle cx="64" cy="62" r="3.2" fill="#e8cf85"/>
+</svg>

@@ -80,8 +80,10 @@ account? Tell your DM and they can file it:
   by hand — that *is* the party's inventory.
 - Works on Roll20's **Jumpgate** engine. Games on the old Legacy engine get
   a polite "not supported" note.
-- Chrome (and Edge/Brave) is the tested browser. Firefox 128+ is supported
-  by the manifest but not yet verified in real play — see INSTALL.md.
+- Chrome (and Edge/Brave) is the tested browser. Firefox 140+ is supported
+  by the manifest but not yet verified in real play — see INSTALL.md. (The
+  floor is 140 rather than 128 because of the data-collection declaration
+  Firefox now requires; see `docs/release-checklist.md`.)
 - **Trust model:** hidden bags are genuinely hidden (server-enforced), but
   the tool doesn't try to stop a determined cheat editing *visible* shared
   data — same as the table itself, it runs on trust.
@@ -92,6 +94,10 @@ account? Tell your DM and they can file it:
 |---|---|
 | `extension/` | The browser extension — the actual product |
 | `INSTALL.md` | Install guide for players — the link to send your group |
+| `PRIVACY.md` | Privacy policy. The stores link to it; it is also the honest answer to "is this safe?" |
+| `docs/release-checklist.md` | How a release gets tested and submitted to both add-on stores |
+| `docs/store-listing.md` | Store listing copy and every dashboard answer, written out ready to paste |
+| `tools/` | Release tooling — `npm run build` packages the zip, `npm run icons` redraws the PNGs |
 | `docs/roll20-party-tools-prd.md` | Product requirements (v0.5). Every requirement has an ID |
 | `docs/future-ideas.md` | Ideas and table feedback not yet built — shop sheets, sub-bags, and what would settle each open question |
 | `docs/roll20-technical-findings.md` | What was verified by inspecting Roll20 live, 8 Aug 2026 |
@@ -103,16 +109,17 @@ account? Tell your DM and they can file it:
 ## Tests
 
 ```
-npm install     # jsdom, the only dependency — the extension itself has none
+npm install     # jsdom and web-ext — the extension itself has no dependencies
 npm test
 ```
 
 The tests boot the **real** extension inside jsdom against a stubbed Roll20
 campaign, so they exercise the shipped files rather than a copy of the logic.
-Two suites: `test/sheets.test.js` (character-sheet writes — the compendium
-weapon graph, taking items back off a sheet, who a player may split coins
-with) and `test/storage-init.test.js` (the DM's first run, and a player who
-opens the panel before the DM has set the game up).
+Three suites, 276 checks: `test/sheets.test.js` (character-sheet writes — the
+compendium weapon graph, taking items back off a sheet, who a player may
+split coins with), `test/storage-init.test.js` (the DM's first run, and a
+player who opens the panel before the DM has set the game up) and
+`test/panel-ui.test.js` (what the panel actually renders).
 
 They take about a minute, most of it deliberate waiting on the same journal
 settling and write-verification delays the real thing uses.
@@ -124,6 +131,26 @@ compendium payload in `sheets.test.js` is a reconstruction, not a captured
 sample — confirm it against a real drop with `PT.sheets.explainGraph()`
 (snippet (a2) in `extension/src/sheets.js`) before trusting a claim onto a
 character you care about. Real play in the test game is still the gate.
+
+## Releasing
+
+```
+npm run release:check   # tests, then the AMO validator, then the package
+```
+
+That writes `dist/party-tools-<version>.zip` — one file, uploaded unchanged
+to both stores — and refuses to build if the version in `manifest.json` and
+the one in `src/util.js` have drifted apart, if the manifest names a file
+that isn't there, or if a store string is over length.
+
+`npm run lint` alone runs `web-ext lint`, the same validator
+addons.mozilla.org runs on submission. One warning is expected (Android,
+which this add-on doesn't target); errors must be zero. All three run in CI
+on every push.
+
+**Green here is not the gate.** The real gate is a session in the test game,
+and for Firefox that has never happened. See
+**[docs/release-checklist.md](docs/release-checklist.md)**.
 
 ## Ground rules
 
