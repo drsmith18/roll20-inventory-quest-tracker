@@ -253,6 +253,32 @@ submission rather than after it.
 
 ---
 
+## 4b. Submitted — 10 Sep 2026
+
+Both stores have 1.0.0 in review. Chrome item id
+`pefhpilcdopnmoionkfhbbddpfjhklee`.
+
+While waiting, do not touch the packages. Listing text and screenshots can
+be edited in either dashboard without a new upload (Chrome re-reviews the
+listing; AMO does not), but a new zip restarts the queue.
+
+**Carried into the next version**, both already committed and neither
+reaching users until something is published:
+
+- The manifest `description` no longer promises a quest tracker, and names
+  5e and 5.5e. The 1.0.0 package in review still carries the old string.
+- The listing copy in `docs/store-listing.md` §3 gained a paragraph on
+  players who have not installed the extension still getting their share.
+  Paste it into both dashboards when convenient — it does not need a new
+  package.
+
+**If either store comes back with a rejection:** it is almost always one
+fixable point rather than a verdict. Fix it, bump the patch version (neither
+store lets you re-publish a version number that has already been submitted),
+`npm run release:check`, and re-upload.
+
+---
+
 ## 5. After both are live
 
 - [ ] Paste the two store URLs into `INSTALL.md`. The restructuring is

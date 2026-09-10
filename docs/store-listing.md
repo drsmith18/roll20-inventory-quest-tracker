@@ -99,6 +99,10 @@ share is held against a character until they take it.
 Claim an item onto your character sheet, and move it back into a bag later.
 A weapon stays a weapon, keeping its attack and damage.
 
+Not everyone at the table needs to install it. If a player has not, their
+share of the loot or the coins is held against their character in the panel
+until someone ticks it off, so nobody gets left out of a split.
+
 Every change is recorded against a name and a time, so there is always an
 answer to who took the rope.
 
@@ -266,29 +270,43 @@ Source: https://github.com/drsmith18/roll20-inventory-quest-tracker
 
 ---
 
-## 7. Screenshots — the one thing that cannot be written in advance
+## 7. Screenshots — the set that shipped with 1.0.0
 
-Both stores want screenshots, and they are the single biggest influence on
-whether anyone installs it. These have to be taken in a real game.
+Five 1280×800 shots, submitted to both stores on 10 Sep 2026. Cropped and
+exported with `tools/shot-cropper.html`, annotated afterwards in red.
 
-- **Chrome Web Store:** 1 to 5 screenshots, **1280×800** or 640×400 PNG.
-  1280×800 is the one to use. At least one is required.
-- **AMO:** at least one; no fixed size, but keep them consistent with the
-  Chrome set.
+Reuse these captions verbatim if the set is ever rebuilt — they were written
+against the real UI and they name features the description alone does not
+make visible.
 
-Worth capturing, roughly in order of persuasiveness:
+| # | What it shows | Caption on the shot |
+|---|---|---|
+| 1 | The panel with coin shares assigned to three characters, `→` and `✓` on each row | *Push items and coins directly to your character sheet* / *Items can be manually set as claimed if one person does not have the extension* |
+| 2 | A Longsword mid-drag from the compendium sidebar onto Party Loot, drop target lit | *Drag & Drop items from the Compendium* |
+| 3 | The Obscure dialog over a Vorpal Longsword, with a hidden "Secret Bag" behind it | *The DM can create hidden bags and disguise an items true properties* |
+| 4 | The Log tab beside the journal showing the `PT-…` handouts in their folder | *Keep track of all activity in the log* / *All your data is saved in your game, not in the extension* |
+| 5 | The split-coins dialog with the party picked | *Split coins with the party* |
 
-1. The panel open beside the tabletop with a bag holding a few real items —
-   the "what is this?" shot, and the one that becomes the store tile.
-2. A compendium item mid-drag onto a bag, or freshly landed in it.
-3. The coin-split preview showing the conversion maths.
-4. The activity log with several named entries.
-5. The DM view showing a hidden bag marked as hidden.
+**Why the annotations matter.** Two of them carry things the description
+cannot show: that a player without the extension still gets their share
+(shot 1, the `✓` control — "Mark as transferred"), and that the data lives
+in the journal as `PT-…` handouts rather than in the extension (shot 4).
+Both are trust arguments, and both land better as a picture than a sentence.
 
-Use the dedicated test game, and check every shot for a real display name,
-avatar, campaign name or email before uploading. The store listing is public
-and permanent.
+**When rebuilding the set:**
 
-The Chrome Web Store also offers a **440×280 small promo tile**. It is
-optional, but a listing without one looks unfinished in the store's own
-category pages. `extension/icons/icon.svg` is the obvious basis for it.
+- The panel header shows the version, so a shot taken against an old build
+  is obvious and dates the whole set. Retake after a version bump if the
+  screenshots are being refreshed anyway.
+- Check the map behind the panel is art you are entitled to publish.
+  Roll20 marketplace maps are licensed for use in your game, not for
+  republishing in a store listing.
+- Scrub before uploading: browser chrome carries tab titles and your profile
+  picture, the bottom-left carries the GM video tile, and the right sidebar
+  carries the campaign's player invite link.
+- Chrome takes 1280×800 or 640×400, 1 to 5 shots. AMO has no fixed size, so
+  the same files serve both.
+
+Still not made: the optional 440×280 Chrome promo tile. `extension/icons/icon.svg`
+is the obvious basis and is entirely original artwork, so there is no
+licensing question there.
