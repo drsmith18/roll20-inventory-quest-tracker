@@ -9,7 +9,7 @@
       "data_collection_permissions": { "required": ["none"] }
     }
   },
-  "description": "Shared party loot for D&D games on Roll20. Bags, coins and a who-took-what log, kept inside your own campaign.",
+  "description": "Shared party loot for D&D 5e and 5.5e games on Roll20. Bags, coins and a who-took-what log, kept in your own campaign.",
   "homepage_url": "https://github.com/drsmith18/roll20-inventory-quest-tracker",
   "icons": {
     "16": "icons/icon-16.png",

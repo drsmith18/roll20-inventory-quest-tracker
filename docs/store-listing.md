@@ -28,15 +28,15 @@ in six months does not mean rewriting all of this from memory.
 
 Chrome caps this at 132 characters.
 
-> Shared party loot for D&D games on Roll20. Bags, coins and a who-took-what log, all kept inside your own campaign.
+> Shared party loot for D&D 5e and 5.5e games on Roll20. Bags, coins and a who-took-what log, kept in your own campaign.
 
-*(114 characters.)*
+*(118 characters.)*
 
 AMO allows 250, so it can carry a little more:
 
-> A shared loot inventory for D&D games on Roll20: bags, coins and a full who-took-what log that everyone at the table can see and edit. It is kept inside your own campaign, so there is no server and no account to create.
+> A shared loot inventory for D&D 5e and 5.5e games on Roll20: bags, coins and a full who-took-what log that everyone at the table can see and edit. It is kept inside your own campaign, so there is no server and no account to create.
 
-*(219 characters.)*
+*(231 characters.)*
 
 ---
 
@@ -55,7 +55,7 @@ Two rules this copy follows, learned the hard way:
   sentence has to stand on its own.
 
 ```
-A shared loot bag for your D&D group on Roll20.
+A shared loot bag for your D&D group on Roll20, for both 5e and 5.5e.
 
 Everyone at the table sees the same inventory. Drop items in, take them out,
 split the coins, and it updates for everyone else within a second or two.
@@ -66,13 +66,17 @@ There is no server involved, no account to create, and I never see any of it.
 
 WHAT YOU NEED
 
-Party Tools is built for D&D 5e games running on Roll20's Jumpgate engine.
-If your game is still on Roll20's older Legacy engine, the panel will not
-start, and it will tell you that is why.
+A D&D game on Roll20's Jumpgate engine. If your game is still on Roll20's
+older Legacy engine, the panel will not start, and it will tell you that is
+why.
 
-Two things are tied to D&D specifically: dragging items in reads the D&D 5e
-compendium, and sending an item to a character sheet needs the D&D 2024
-sheet. Bags, coins and the log work with any sheet.
+Both rulesets are supported, but not identically. Dragging items in reads
+Roll20's D&D 5e compendium, which covers the 2014 rules (5e) and the 2024
+rules (5.5e) alike. Sending an item onto a character sheet needs Roll20's
+D&D 2024 sheet specifically; on the 2014 sheet, or any other sheet, the item
+is recorded as assigned to that character instead of being written onto it.
+
+Bags, coins, splitting and the log work whatever sheet you use.
 
 Your DM needs to open the panel once in each game to set it up. If you get
 there before they have, the panel says so, and starts working on its own
