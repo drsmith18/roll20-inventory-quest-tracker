@@ -9,7 +9,7 @@
       "data_collection_permissions": { "required": ["none"] }
     }
   },
-  "description": "Shared party inventory (and later, quest tracker) for Roll20 games. Stores everything inside the campaign itself as handouts.",
+  "description": "Shared party loot for D&D games on Roll20. Bags, coins and a who-took-what log, kept inside your own campaign.",
   "homepage_url": "https://github.com/drsmith18/roll20-inventory-quest-tracker",
   "icons": {
     "16": "icons/icon-16.png",

@@ -24,74 +24,103 @@ in six months does not mean rewriting all of this from memory.
 
 ---
 
-## 2. Summary — 132 characters, Chrome's hard limit
+## 2. Summary
 
-> Shared party inventory for Roll20. Bags, coins and loot the whole table can see, stored inside your own campaign.
+Chrome caps this at 132 characters.
 
-*(113 characters.)*
+> Shared party loot for D&D games on Roll20. Bags, coins and a who-took-what log, all kept inside your own campaign.
 
-AMO allows 250 characters for its summary, so it can take the longer line:
+*(114 characters.)*
 
-> A shared party inventory for your Roll20 game: bags, coins and loot the whole table can see and edit, with a full who-took-what log. No server and no account — everything is stored inside your own campaign as journal handouts.
+AMO allows 250, so it can carry a little more:
 
-*(226 characters.)*
+> A shared loot inventory for D&D games on Roll20: bags, coins and a full who-took-what log that everyone at the table can see and edit. It is kept inside your own campaign, so there is no server and no account to create.
+
+*(219 characters.)*
 
 ---
 
 ## 3. Detailed description
 
-Paste into both stores. Neither renders Markdown, so this is written to read
-correctly as plain text.
+Paste into both stores. Neither renders Markdown, so this reads as plain text.
+
+Two rules this copy follows, learned the hard way:
+
+- **Nothing that does not exist yet.** No quest tracker, no roadmap, no
+  "coming soon". A store page is read by someone deciding whether to install
+  today, and a feature list they cannot use reads as padding at best and bait
+  at worst.
+- **No context the reader does not have.** They have not seen the repository,
+  they do not know its name, and they have never heard of this project. Every
+  sentence has to stand on its own.
 
 ```
-Party Tools adds a shared party inventory to your Roll20 game — bags of loot
-and coins the whole table can see and edit, right next to the tabletop.
+A shared loot bag for your D&D group on Roll20.
 
-No server. No account. No tracking. Your party's inventory is stored inside
-your own Roll20 campaign as journal handouts, so it travels with the game
-and nobody else ever holds a copy of it.
+Everyone at the table sees the same inventory. Drop items in, take them out,
+split the coins, and it updates for everyone else within a second or two.
 
-WHAT IT DOES
+All of it lives in your own Roll20 campaign, stored as journal handouts.
+There is no server involved, no account to create, and I never see any of it.
 
-• Shared bags, live — the DM creates bags, everyone fills them, and changes
-  appear for the whole party in a second or two.
-• Drag straight from the compendium — drop an item onto a bag and its name,
-  description, weight, cost and rarity come along automatically.
-• Homebrew welcome — add manual items for the things no compendium has.
-• Coins, properly — a purse per bag, with a reasons log, and coin splitting
-  that shows you the maths first: convert-down, remainder stays in the
-  purse, each share recorded against a character until they take it.
-• Who took the rope — every add, move, removal and coin change is logged
-  with a name and a time, visible to the whole party.
-• Claim to your character sheet — take an item from a bag onto your own
-  sheet, and put it back again later without flattening it. A compendium
-  weapon arrives as a weapon, with its attack and damage intact.
-• DM tools — hidden bags for prepped loot that Roll20's own servers keep
-  from players, items you can disguise behind a written description and
-  reveal in one click, and a private DM-only log for the secret half.
-• Find things — search across every bag, sort within a bag, rename bags.
 
 WHAT YOU NEED
 
-• A Roll20 game running the Jumpgate engine. Games on the older Legacy
-  engine are politely declined rather than half-supported.
-• The DM opens the panel once in each game to set up the storage. Players
-  who get there first are told so, and their panel picks the game up on its
-  own once the DM has.
+Party Tools is built for D&D 5e games running on Roll20's Jumpgate engine.
+If your game is still on Roll20's older Legacy engine, the panel will not
+start, and it will tell you that is why.
 
-STILL TO COME
+Two things are tied to D&D specifically: dragging items in reads the D&D 5e
+compendium, and sending an item to a character sheet needs the D&D 2024
+sheet. Bags, coins and the log work with any sheet.
 
-Sub-bags, and the quest tracker the name promises.
+Your DM needs to open the panel once in each game to set it up. If you get
+there before they have, the panel says so, and starts working on its own
+once they do.
+
+
+WHAT IT DOES
+
+Bags of loot the whole party can see and edit. The DM creates the bags,
+everyone fills them.
+
+Drag an item from the Roll20 compendium onto a bag and its name,
+description, weight, cost and rarity come with it. You can also type in your
+own items for anything homebrew.
+
+Every bag has a coin purse. Splitting coins shows you the maths before you
+commit to it: what converts down, what is left over, and who gets what. Each
+share is held against a character until they take it.
+
+Claim an item onto your character sheet, and move it back into a bag later.
+A weapon stays a weapon, keeping its attack and damage.
+
+Every change is recorded against a name and a time, so there is always an
+answer to who took the rope.
+
+You can search across every bag, sort within one, and rename them.
+
+
+IF YOU ARE THE DM
+
+You can make a bag hidden. Roll20's own servers withhold its contents from
+players, so it is genuinely hidden and not just tucked out of sight in the
+interface.
+
+You can also disguise an item, so players see a written description instead
+of its real name until you choose to reveal it. Anything you do in secret
+goes to a separate log only you can read.
+
 
 PRIVACY
 
-Party Tools runs only on Roll20 game pages and cannot see any other site.
-It has no analytics, sends nothing to its author, and has no server to send
-anything to. Full policy:
+Party Tools only runs on Roll20 game pages, so it cannot see anything else
+you do in your browser. There is no analytics and nothing is sent to me.
+Full policy:
 https://github.com/drsmith18/roll20-inventory-quest-tracker/blob/main/PRIVACY.md
 
-It is free and always will be. If it earns its keep at your table, there is
-a Ko-fi link in the panel.
+It is free and it is staying free. There is a Ko-fi link in the panel if it
+earns its keep at your table.
 ```
 
 ---
