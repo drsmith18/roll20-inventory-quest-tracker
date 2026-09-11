@@ -3,13 +3,13 @@
 Party Tools adds a shared party inventory to your Roll20 game: bags of loot
 and coins everyone can see and edit, right next to the tabletop.
 
-> ### Where things stand
+> ### Two clicks, whichever browser you use
 >
-> Party Tools is being submitted to the **Chrome Web Store** and **Firefox
-> Add-ons**. Until those listings are approved, use
-> **[Install from source](#install-from-source)** below — it takes about
-> three minutes of clicking. The one-click buttons appear here the moment the
-> listings go live.
+> **Chrome, Edge, Brave, Opera → [Add to Chrome](https://chromewebstore.google.com/detail/party-tools-for-roll20/pefhpilcdopnmoionkfhbbddpfjhklee)**
+> **Firefox → [Add to Firefox](https://addons.mozilla.org/firefox/addon/party-tools-for-roll20/)**
+>
+> That is the whole install. Everything below is detail you only need if
+> something looks wrong, or if you would rather run the code yourself.
 
 ---
 
@@ -38,19 +38,18 @@ Fair question — you're being asked to install software. Straight answers:
 
 ## Install from the store
 
-*Not live yet — see [Where things stand](#where-things-stand). Once they are,
-this is the whole process:*
+This is how almost everyone should install it.
 
 ### Chrome, Edge, Brave, Opera
 
-1. Open the Chrome Web Store listing. *(Link to follow.)*
+1. Open the [Chrome Web Store listing](https://chromewebstore.google.com/detail/party-tools-for-roll20/pefhpilcdopnmoionkfhbbddpfjhklee).
 2. Click **Add to Chrome**, then **Add extension**.
 
 That's it. It updates itself from then on.
 
 ### Firefox
 
-1. Open the Firefox Add-ons listing. *(Link to follow.)*
+1. Open the [Firefox Add-ons listing](https://addons.mozilla.org/firefox/addon/party-tools-for-roll20/).
 2. Click **Add to Firefox**, then **Add**.
 
 That's it too — and unlike the from-source route below, it stays installed
@@ -65,8 +64,9 @@ Not supported. Safari needs a completely different packaging process.
 
 ## Install from source
 
-This is the route to use while the store listings are pending — and it stays
-available afterwards for anyone who'd rather run the code themselves.
+You do not need this route — the store listings above are live. It is here
+for anyone who'd rather run the code themselves, or who wants to try a
+change before it ships.
 
 These instructions assume you've never installed an extension this way
 before. Nothing here can break your computer or your Roll20 account.

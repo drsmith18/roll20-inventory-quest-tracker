@@ -6,16 +6,16 @@ who-did-what activity log. A DM-controlled quest tracker is planned next.
 All data is stored *inside* the Roll20 campaign itself (as journal
 handouts), so there is no external server, no accounts, and nothing to host.
 
-**Status: v1.0 — the inventory is feature-complete and verified in real play
-on both Chrome and Firefox.** Being submitted to the Chrome Web Store and
-Firefox Add-ons; until those listings are live it installs by hand. See
-[docs/release-checklist.md](docs/release-checklist.md) for where that
-stands.
+**Status: v1.0 — live on both stores.** The inventory is feature-complete
+and verified in real play on Chrome and Firefox.
 
 > ### 👉 Just want to install it and play?
-> **Read [INSTALL.md](INSTALL.md)** — step-by-step instructions for Chrome
-> and Firefox, written for players who've never installed an extension this
-> way. That's the link to send your group.
+> **[Add to Chrome](https://chromewebstore.google.com/detail/party-tools-for-roll20/pefhpilcdopnmoionkfhbbddpfjhklee)** (also Edge, Brave, Opera)
+> **[Add to Firefox](https://addons.mozilla.org/firefox/addon/party-tools-for-roll20/)** (Firefox 140+)
+>
+> Two clicks, nothing to configure. [INSTALL.md](INSTALL.md) is the longer
+> guide — what the panel looks like, what to do if it doesn't appear, and
+> how to run it from source instead. That's the link to send your group.
 
 ## What works today
 
@@ -55,16 +55,13 @@ work.
 
 ## Installing
 
-Full instructions for players are in **[INSTALL.md](INSTALL.md)** (Chrome,
-Edge and Firefox, with troubleshooting). Once the store listings are live
-that becomes a two-click job; until then it's the from-source route below.
+Install from the store — [Chrome](https://chromewebstore.google.com/detail/party-tools-for-roll20/pefhpilcdopnmoionkfhbbddpfjhklee) or [Firefox](https://addons.mozilla.org/firefox/addon/party-tools-for-roll20/) — then reload your
+Roll20 game and click the treasure-chest tab on the right edge. The DM must
+open the panel once in each game before players can use it; players who got
+there first don't need to reload, their panel picks the game up on its own.
 
-Short version for the impatient: download the repo as a ZIP, unzip it, then
-in Chrome go to `chrome://extensions`, turn on **Developer mode**, click
-**Load unpacked**, and pick the `extension` folder. Reload your Roll20 game
-and click the treasure-chest tab on the right edge. The DM must open the
-panel once in each game before players can use it — players who got there
-first don't need to reload, their panel picks the game up on its own.
+Full instructions for players, including troubleshooting and the
+run-it-from-source route, are in **[INSTALL.md](INSTALL.md)**.
 
 ## Reporting bugs (please do!)
 

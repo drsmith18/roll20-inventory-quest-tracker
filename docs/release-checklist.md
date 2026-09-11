@@ -281,14 +281,18 @@ store lets you re-publish a version number that has already been submitted),
 
 ## 5. After both are live
 
-- [ ] Paste the two store URLs into `INSTALL.md`. The restructuring is
-      already done — "Install from the store" is the lead section with
-      *(Link to follow.)* in place of each URL, load-unpacked has been
-      demoted to "Install from source", and the Firefox "unloads every
-      session" warning is now scoped to that route only. Search the file for
-      `Link to follow` and for the `Where things stand` block at the top,
-      which should change from "being submitted" to "available".
-- [ ] Update the README status line and drop the "until those listings are
+Both listings went live in September 2026:
+
+| Store | URL |
+|---|---|
+| Chrome Web Store | `https://chromewebstore.google.com/detail/party-tools-for-roll20/pefhpilcdopnmoionkfhbbddpfjhklee` |
+| Firefox Add-ons | `https://addons.mozilla.org/firefox/addon/party-tools-for-roll20/` |
+
+- [x] Paste the two store URLs into `INSTALL.md`. Store install is now the
+      lead section, the top block leads with both buttons, and load-unpacked
+      is demoted to "Install from source" with its Firefox "unloads every
+      session" warning scoped to that route only.
+- [x] Update the README status line and drop the "until those listings are
       live" wording, adding both store links.
 - [ ] Tag the release in git and attach the zip to a GitHub release, so the
       exact reviewed artefact stays recoverable.
