@@ -1115,9 +1115,10 @@
         var truth = (snapshot.obscured || {})[it.id];
         if (truth) nameSpan.appendChild(PT.el("span", { class: "pt-truename", text: "[" + truth.name + "]" }));
       }
+      var qtySpan = PT.el("span", { class: "pt-qty", text: "×" + shownQty(bag, it) });
       var actionBtns = [
-        PT.el("button", { class: "pt-iconbtn", text: "−", title: "One fewer", onclick: function () { PT.store.changeQty(env, bag.id, d.name, it.id, -1).then(ui.refresh); } }),
-        PT.el("button", { class: "pt-iconbtn", text: "+", title: "One more", onclick: function () { PT.store.changeQty(env, bag.id, d.name, it.id, +1).then(ui.refresh); } }),
+        PT.el("button", { class: "pt-iconbtn", text: "−", title: "One fewer", onclick: function () { bumpQty(bag, d, it, -1, qtySpan); } }),
+        PT.el("button", { class: "pt-iconbtn", text: "+", title: "One more", onclick: function () { bumpQty(bag, d, it, +1, qtySpan); } }),
         PT.el("button", { class: "pt-iconbtn", text: "⇄", title: "Move to another bag", onclick: function () { moveItemModal(bag, it); } }),
         // INV-21/23a/23b: visible to everyone (players and DM alike) —
         // controlledBy itself is what restricts which characters show up.
@@ -1148,12 +1149,15 @@
         class: "pt-iconbtn", text: "×", title: "Delete item",
         onclick: function () {
           if (!confirm("Remove “" + it.name + "” from “" + d.name + "”? The DM can restore it via the activity log.")) return;
-          PT.store.deleteItem(env, bag.id, d.name, it.id).then(ui.refresh);
+          PT.store.deleteItem(env, bag.id, d.name, it.id).then(function (r) {
+            if (!r.ok) ui.toast("Remove failed: " + r.err);
+            ui.refresh();
+          });
         }
       }));
       // isObs is env.isGM-gated, so a player never gets the marker class.
       items.appendChild(PT.el("div", { class: "pt-item" + (isObs ? " pt-obscured" : "") },
-        [nameSpan, PT.el("span", { class: "pt-qty", text: "×" + (it.qty || 1) })].concat(actionBtns)));
+        [nameSpan, qtySpan].concat(actionBtns)));
     });
     var descDiv = d.desc ? PT.el("div", { class: "pt-bagdesc", text: d.desc }) : null;
     var card = PT.el("div", { class: "pt-bag" + (bag.hidden ? " pt-hidden-bag" : "") }, [head, hiddenStrip, descDiv, purse].concat(assignRows, [items]));
@@ -1180,6 +1184,31 @@
       });
     });
     return card;
+  }
+
+  // −/+ clicks show their result at once and settle in the background.
+  // storage.js queues writes per bag and folds every click waiting in the
+  // queue into one write (issue #51), so a burst of clicks lands as a whole
+  // instead of racing itself; this map is only the not-yet-confirmed part
+  // of the number on screen.
+  var pendingQty = {};   // bagId|itemId -> net delta still in flight
+  function qtyKey(bag, it) { return bag.id + "|" + it.id; }
+  function shownQty(bag, it) {
+    return Math.max(0, (Number(it.qty) || 1) + (pendingQty[qtyKey(bag, it)] || 0));
+  }
+  function bumpQty(bag, d, it, delta, qtySpan) {
+    var k = qtyKey(bag, it);
+    pendingQty[k] = (pendingQty[k] || 0) + delta;
+    if (qtySpan) qtySpan.textContent = "×" + shownQty(bag, it);
+    PT.store.changeQty(env, bag.id, d.name, it.id, delta).then(function (r) {
+      pendingQty[k] -= delta;
+      if (!pendingQty[k]) delete pendingQty[k];
+      if (!r.ok) {
+        ui.toast("Couldn't save that quantity change — " + r.err + ". Try again.");
+        if (panel && panel.style.display !== "none") renderBody();
+      }
+      ui.refresh();
+    });
   }
 
   function renderInventory(body) {

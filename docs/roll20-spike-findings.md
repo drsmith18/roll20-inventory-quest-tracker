@@ -223,6 +223,24 @@ notified; the losing write is discarded in its entirety.
 3. **A verify-and-retry layer wraps every write.** Rejection (permissions)
    and loss (contention) are both silent and look identical to success.
 
+**Revised after issue #51 (Nov 2026).** Re-reading once after a write only
+catches a loss that happens before that re-read. A client that read *before*
+our write and writes *after* our check still overwrites us without anyone
+noticing. Two players editing one bag in the same moment lost both changes this
+way. `writeMerged` in `storage.js` now:
+- tags every change with an op id, kept in the body's `ops` ring. It confirms
+  a change by finding that id in the body, not by matching the exact text, so
+  a retry never applies the same change twice.
+- queues writes per handout within each client, so a burst of clicks goes out
+  together in one write instead of the clicks racing each other.
+- re-checks each confirmed change a few times over about 30 s, and re-applies
+  any change whose id has disappeared.
+
+A body without `ops` was last written by an older version. Nothing is
+re-applied against it, because there is no way to tell whether a change was
+lost. `test/storage-concurrency.test.js` runs these cases against a stub of
+S5's last-write-wins behaviour.
+
 ## S6 — Legacy backend — CLOSED by scope decision
 
 Not tested. DR's decision: v1 targets Jumpgate only — an outcome the spike

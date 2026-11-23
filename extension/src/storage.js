@@ -50,26 +50,184 @@
   // for "nothing to do". On every attempt the CURRENT body is re-read and
   // the mutation re-applied, so a lost race reapplies our change on top of
   // the winner instead of clobbering it (the S5 lesson).
-  function writeMerged(h, mutate, attempts) {
+  //
+  // Issue #51 showed that "write, wait, compare the text" is not enough on
+  // its own. Three things make it hold up under real contention:
+  //
+  //  1. Op ids. Every mutation carries an id, recorded in the doc's `ops`
+  //     ring when it is written. Confirmation asks "is my id in the body?"
+  //     rather than "is the body exactly my text?", so someone else writing
+  //     on top of us counts as success, and a retry never applies the same
+  //     change twice (a re-read that finds the id skips the mutation). This
+  //     is the splitCoins marker idea, made general.
+  //  2. One write at a time per handout, per client. Rapid clicks used to
+  //     launch overlapping read-modify-writes that clobbered each other from
+  //     the same browser. Now ops queue, and every op waiting when a write
+  //     starts goes out in that one write, so ten quick clicks cost one or
+  //     two round trips, not ten.
+  //  3. Late re-confirmation. S5's loser is a client that read before our
+  //     write and wrote after our confirmation: we confirmed, then got
+  //     overwritten, and nobody noticed. Confirmed ops are re-checked a few
+  //     times over RECONFIRM_WINDOW_MS; one whose id has vanished is
+  //     re-applied (idempotently, by the same id).
+  //
+  // A body without an `ops` array was last written by a client that
+  // predates this (v1.0.0). Its absence says nothing about whether our op
+  // landed, so confirmation falls back to exact text, and late
+  // re-confirmation stays out of the way rather than risk applying twice.
+  var OPS_KEEP = 200;
+  function reconfirmDelays() { return PT.RECONFIRM_DELAYS_MS || [4000, 12000, 30000]; }
+
+  function cloneDoc(doc) { return doc == null ? doc : JSON.parse(JSON.stringify(doc)); }
+  function hasOp(doc, opId) { return !!(doc && Array.isArray(doc.ops) && doc.ops.indexOf(opId) !== -1); }
+
+  var queues = {};    // handout id -> { waiting: [op], running: bool }
+
+  // Public entry. opts: { opId, reconfirm } — both optional. A caller that
+  // re-applies an op passes its original id so the op stays idempotent.
+  function writeMerged(h, mutate, opts) {
     if (st.readOnly) return Promise.resolve({ ok: false, err: "read-only: data written by a newer version" });
-    attempts = attempts == null ? 4 : attempts;
+    if (!h) return Promise.resolve({ ok: false, err: "no handout to write to" });
+    opts = opts || {};
+    return new Promise(function (resolve) {
+      var q = queues[h.id] || (queues[h.id] = { waiting: [], running: false });
+      q.waiting.push({
+        opId: opts.opId || PT.uid(),
+        mutate: mutate,
+        attemptsLeft: 4,
+        reconfirm: opts.reconfirm !== false,
+        resolve: resolve
+      });
+      pump(h);
+    });
+  }
+  PT.store.writeMerged = writeMerged;
+
+  function pump(h) {
+    var q = queues[h.id];
+    if (!q || q.running || !q.waiting.length) return;
+    q.running = true;
+    var batch = q.waiting;
+    q.waiting = [];
+    attemptBatch(h, batch).then(function () {
+      q.running = false;
+      pump(h);
+    }, function (e) {
+      // Never leave a queue wedged: fail what was in flight, keep going.
+      batch.forEach(function (op) { if (op.resolve) op.resolve({ ok: false, err: "write failed: " + (e && e.message) }); });
+      q.running = false;
+      pump(h);
+    });
+  }
+
+  function settle(op, result) {
+    var r = op.resolve;
+    op.resolve = null;
+    if (r) r(result);
+  }
+
+  // One read-modify-write cycle for every op in the batch, then a single
+  // confirmation read. Ops that did not stick go round again until each one
+  // runs out of attempts.
+  function attemptBatch(h, batch) {
     return readBlob(h).then(function (cur) {
-      var doc = mutate(PT.tryJson(cur));
-      if (doc === null) return { ok: true, unchanged: true };
+      var doc = PT.tryJson(cur);
+      var written = [];
+      batch.forEach(function (op) {
+        if (hasOp(doc, op.opId)) {
+          // Landed on an earlier attempt whose confirmation read was stale.
+          settle(op, { ok: true, doc: doc, alreadyApplied: true });
+          return;
+        }
+        // Each op works on a copy, so one that refuses part-way through
+        // (returns null after touching the doc) can't leak half a change
+        // into a write made on behalf of its neighbours.
+        var next = op.mutate(cloneDoc(doc));
+        if (next === null || next === undefined) { settle(op, { ok: true, unchanged: true }); return; }
+        // Copied again: a mutate may hand back an object it keeps (creation
+        // returns the same firstDoc on every attempt), and the ops ring is
+        // about to be written onto it.
+        doc = cloneDoc(next);
+        written.push(op);
+      });
+      if (!written.length) return;
+
+      var ops = (doc && Array.isArray(doc.ops)) ? doc.ops.slice() : [];
+      written.forEach(function (op) { ops.push(op.opId); });
+      doc.ops = ops.slice(-OPS_KEEP);
       doc.rev = PT.uid();
       var text = JSON.stringify(doc);
       try { h.updateBlobs({ notes: text }); }
-      catch (e) { return { ok: false, err: "write threw: " + e.message }; }
+      catch (e) {
+        written.forEach(function (op) { settle(op, { ok: false, err: "write threw: " + e.message }); });
+        return;
+      }
       return PT.delay(verifyDelay()).then(function () {
         return readBlob(h).then(function (got) {
-          if (got === text) return { ok: true, doc: doc };
-          if (attempts <= 1) return { ok: false, err: "write did not persist (permissions, or repeated write races)" };
-          return writeMerged(h, mutate, attempts - 1);
+          var gotDoc = PT.tryJson(got);
+          var legacy = !gotDoc || !Array.isArray(gotDoc.ops);
+          var retry = [];
+          written.forEach(function (op) {
+            var stuck = legacy ? got === text : hasOp(gotDoc, op.opId);
+            if (stuck) {
+              settle(op, { ok: true, doc: gotDoc || doc });
+              if (op.reconfirm) watchOp(h, op);
+              return;
+            }
+            op.attemptsLeft -= 1;
+            if (op.attemptsLeft <= 0) settle(op, { ok: false, err: "write did not persist (permissions, or repeated write races)" });
+            else retry.push(op);
+          });
+          if (retry.length) return attemptBatch(h, retry);
         });
       });
     });
   }
-  PT.store.writeMerged = writeMerged;
+
+  // ---- late re-confirmation --------------------------------------------------
+  // Per handout: the confirmed ops still under watch, each with the time its
+  // next check falls due. One timer per handout; one read per tick checks
+  // every op on it.
+  var watched = {};   // handout id -> { ops: [{opId, mutate, at, step}], timer }
+
+  function watchOp(h, op) {
+    var w = watched[h.id] || (watched[h.id] = { ops: [], timer: null });
+    var t0 = Date.now();
+    w.ops.push({ opId: op.opId, mutate: op.mutate, t0: t0, step: 0, due: t0 + reconfirmDelays()[0] });
+    scheduleRecheck(h, w);
+  }
+
+  function scheduleRecheck(h, w) {
+    if (w.timer) clearTimeout(w.timer);
+    var next = Math.min.apply(null, w.ops.map(function (o) { return o.due; }));
+    w.timer = setTimeout(function () { recheck(h, w); }, Math.max(0, next - Date.now()));
+  }
+
+  function recheck(h, w) {
+    w.timer = null;
+    readBlob(h).then(function (cur) {
+      var doc = PT.tryJson(cur);
+      var delays = reconfirmDelays();
+      var legacy = !doc || !Array.isArray(doc.ops);
+      var now = Date.now();
+      w.ops = w.ops.filter(function (o) {
+        if (!legacy && !hasOp(doc, o.opId)) {
+          PT.log("a confirmed change was overwritten by a stale write; re-applying it (op " + o.opId + ")");
+          writeMerged(h, o.mutate, { opId: o.opId, reconfirm: false });
+        }
+        if (o.due > now) return true;          // checked early; its own tick is still to come
+        o.step += 1;
+        if (o.step >= delays.length) return false;
+        o.due = o.t0 + delays[o.step];
+        return true;
+      });
+      if (w.ops.length) scheduleRecheck(h, w);
+      else delete watched[h.id];
+    });
+  }
+  PT.store._pendingRechecks = function () {
+    return Object.keys(watched).reduce(function (n, k) { return n + watched[k].ops.length; }, 0);
+  };
 
   // share: "all" (revealed) or "gm" (hidden). Creation is attempted from any
   // client; whether Roll20 permits players to create handouts is unverified,
@@ -85,7 +243,9 @@
       });
     } catch (e) { return Promise.resolve({ ok: false, err: "create threw: " + e.message }); }
     return PT.delay(createDelay()).then(function () {
-      return writeMerged(h, function () { return firstDoc; }).then(function (res) {
+      // No late re-confirmation: re-applying "the whole first doc" a few
+      // seconds later could wipe whatever was written on top of it.
+      return writeMerged(h, function () { return firstDoc; }, { reconfirm: false }).then(function (res) {
         if (res.ok) return { ok: true, h: h };
         // Observed live: Roll20's server rejects handout creation by a
         // non-GM (permission_denied on /handouts/<id>), silently as ever.

@@ -81,7 +81,62 @@ function integrantsOf(character) {
   return character.attribs.models[0]._v.integrants.integrants;
 }
 
+// A Roll20 server several clients share, faithful to S5: a write reaches
+// the server `latencyMs` after updateBlobs and replaces the body whole (last
+// arrival wins, nobody told); reads return whatever the server holds now.
+// Pass the returned `handouts` to createWorld({handouts}) for every client.
+// Knobs, for the failure modes the storage layer has to survive:
+//   rejectWrites  - drop every write (Roll20's silent permission refusal)
+//   staleReads    - the next N reads return the body as it was before the
+//                   most recent write (a confirmation read that lags)
+function createSharedServer(opts) {
+  opts = opts || {};
+  const latency = opts.latencyMs == null ? 30 : opts.latencyMs;
+  const server = { rejectWrites: false, staleReads: 0, writes: 0 };
+  const handouts = {
+    models: [],
+    create(attrs) {
+      const blobs = { notes: "" };
+      let previous = "";
+      const h = {
+        id: nextId("h"),
+        attributes: Object.assign({}, attrs),
+        get(k) { return this.attributes[k]; },
+        save(o) { Object.assign(this.attributes, o); },
+        _getLatestBlob(key, cb) {
+          setTimeout(() => {
+            if (server.staleReads > 0 && key === "notes") { server.staleReads--; cb(previous); return; }
+            cb(blobs[key]);
+          }, 0);
+        },
+        updateBlobs(o) {
+          setTimeout(() => {
+            if (server.rejectWrites) return;
+            server.writes++;
+            if ("notes" in o) previous = blobs.notes;
+            Object.assign(blobs, o);
+          }, latency);
+        },
+        // Test-only: what the server holds, and a write that skips latency
+        // (another client's write landing at an exact moment).
+        _server: {
+          read: () => blobs.notes,
+          write: text => { previous = blobs.notes; blobs.notes = text; }
+        }
+      };
+      h._collection = handouts;
+      handouts.models.push(h);
+      return h;
+    },
+    get(id) { return handouts.models.find(h => h.id === id) || null; }
+  };
+  server.handouts = handouts;
+  return server;
+}
+
 // opts:
+//   handouts        - a shared handout collection (createSharedServer), so
+//                     several worlds act as clients of one campaign
 //   isGM            - what window.is_gm reports (default false)
 //   scripts         - which extension files to load (default: all of them)
 //   intervalDivisor - divide every setInterval delay by this, so a test
@@ -94,7 +149,7 @@ function createWorld(opts) {
   });
   const win = dom.window;
 
-  const handouts = {
+  const handouts = opts.handouts || {
     models: [],
     create(attrs) {
       const h = makeHandout(attrs);
@@ -154,4 +209,4 @@ function createWorld(opts) {
 
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
-module.exports = { createWorld, makeCharacter, integrantsOf, wait, SRC };
+module.exports = { createWorld, createSharedServer, makeCharacter, integrantsOf, wait, SRC };
